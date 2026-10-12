@@ -56,3 +56,8 @@ def diagnostic(stage, exc, **context):
         evidence=getattr(exc, "evidence", None),
         **context,
     )
+
+
+def pose_directory(output, pose):
+    """Where a pose's prepared files are written: prepared/<hash of ensemble and pose ID>/."""
+    return Path(output) / "prepared" / fingerprint((pose["ensemble"], pose["pose_id"]))[:20]

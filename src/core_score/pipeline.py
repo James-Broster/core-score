@@ -1,8 +1,10 @@
 """Run the analysis stages in order and save every dataset."""
 
+import os
 from importlib.metadata import version
 from pathlib import Path
 from core_score import __version__
+from core_score.inputs import load_inputs
 from core_score.results import write_json
 from core_score.stages.comparison import compare_groups
 from core_score.stages.decisions import decide_groups
@@ -11,6 +13,22 @@ from core_score.stages.posebusters import run_posebusters
 from core_score.stages.preparation import prepare_groups
 from core_score.stages.scoring import score_groups
 from core_score.stages.site_assignment import prepare_site_groups
+
+
+def run(inputs, out, *, smiles=None, ligand_chains=None, reference=None, evaluate_reference=False, **options):
+    """Run CORE Score from Python, exactly as the core-score command does.
+
+    `inputs` is a JSON manifest or a list of structure files. The other settings match
+    the command-line options, for example workers=4, thresholds=(1.0, 2.0), cutoffs=(0.7,)
+    or plots=True. Results are saved under `out`, and the completion counts are returned.
+
+        import core_score
+        core_score.run("inputs.json", "results/", workers=8)
+    """
+    inputs = [inputs] if isinstance(inputs, (str, os.PathLike)) else inputs
+    groups = load_inputs(inputs, smiles=smiles, ligand_chains=ligand_chains,
+                         reference=reference, evaluate_reference=evaluate_reference)
+    return execute(groups, out, evaluate_reference=evaluate_reference, **options)
 
 
 def execute(
@@ -28,6 +46,7 @@ def execute(
 ):
     """Run the full analysis on loaded ensembles, save its datasets, and return completion counts."""
     output = Path(output).resolve()
+    thresholds, cutoffs = tuple(map(float, thresholds)), tuple(map(float, cutoffs))
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output directory is not empty; choose a new or empty output directory")
     output.mkdir(parents=True, exist_ok=True)

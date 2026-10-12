@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from core_score.stages.utils.preparation.chemistry import template_mol
+from core_score.structure.chemistry import template_mol
 
 MANIFEST_ERROR = (
     "A CORE Score manifest needs an 'ensembles' list. Each ensemble needs a unique "

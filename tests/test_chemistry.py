@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.stages.utils.preparation.sdf import (
+from core_score.structure.sdf import (
     matched_template,
     generic_graph,
     write_molecule,
     read_original,
 )
-from core_score.stages.utils.preparation.chemistry import identity
+from core_score.structure.chemistry import identity
 
 
 def conformer(smiles):
@@ -49,7 +49,7 @@ def test_original_sdf_identity_and_coordinate_precision(tmp_path):
 
 def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
     import gemmi
-    from core_score.stages.utils.preparation import sdf
+    from core_score.structure import sdf
 
     # An otherwise valid molecule must be discarded if a later validation fails.
     observed = conformer("CCO")
@@ -71,7 +71,7 @@ def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
 
 def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf():
     from unittest.mock import Mock
-    from core_score.stages.utils.posebusters_utils import check_pose
+    from core_score.stages.posebusters import check_pose
 
     buster = Mock()
     result = check_pose(buster, [], dict(
@@ -85,7 +85,7 @@ def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf():
 
 def test_peer_graph_recovery_keeps_recipient_coordinates_and_cache_scope(monkeypatch):
     import gemmi
-    from core_score.stages.utils.preparation import sdf
+    from core_score.structure import sdf
 
     donor = conformer("CCO")
     positions = donor.GetConformer().GetPositions().copy()

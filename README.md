@@ -25,9 +25,6 @@ poses that fail PoseBusters checks, because they still sample the model's output
 distribution. Validity filtering belongs downstream, for example when choosing the
 top-ranked prediction.
 
-`core_score(matrix, threshold=2.0)` is importable from `core_score` for matrices
-computed elsewhere.
-
 ## Install
 
 ```bash
@@ -54,6 +51,17 @@ chemical library itself or through `OST_COMPOUNDS_CHEMLIB`.
 core-score inputs.json --out results/ --workers 8 --plots
 core-score poses/*.cif --smiles 'CCO' --out results/
 ```
+
+The same run from Python:
+
+```python
+import core_score
+
+core_score.run("inputs.json", "results/", workers=8, plots=True)
+```
+
+`core_score.core_score(matrix, threshold=2.0)` scores a pairwise RMSD matrix you have
+computed yourself.
 
 A JSON manifest can hold many ensembles. Structure files given directly form one
 ensemble. PDB, CIF and mmCIF are accepted, each with one structural model. Every
@@ -195,42 +203,33 @@ OST command and output.
 
 ## Code layout
 
-Reading order is `cli.py → pipeline.execute() → stages/<stage>.py → stages/utils/`.
-Stages run the steps and write results. Utils compute.
+`pipeline.py` runs the stages in order, one file per stage. The shared helpers never
+call a stage.
 
 ```text
 src/core_score/
-  cli.py                      parse the command
-  inputs.py                   load and check JSON or structure inputs
-  pipeline.py                 run the stages in order
-  results.py                  output writers and diagnostics
+  cli.py                  the core-score command
+  inputs.py               load and check JSON or structure inputs
+  pipeline.py             run() and execute(): the stages in order
+  results.py              output writers, failure records, output folders
+  ost.py                  every OpenStructure call
   stages/
-    preparation.py            prepare structures and ligand chemistry
-    posebusters.py            dock checks for every pose
-    site_assignment.py        split multi-copy ensembles by site
-    comparison.py             compare every pair
-    scoring.py                matrix and CORE per threshold
-    evaluation.py             optional reference comparison
-    decisions.py              accepted ensembles and top poses per cutoff
-    plotting.py               figures from saved results
-    utils/
-      ost.py                  every OpenStructure call
-      preparation/
-        prepare.py            prepare one structure
-        chemistry.py          ligand selection and chemical identity
-        cif.py                read and filter structure records
-        sdf.py                coordinate-preserving ligand molecules
-      posebusters_utils.py    dock checks and validity
-      sites.py                protein superposition and site assignment
-      comparison_utils.py     pair tasks and OST score summaries
-      radius.py               binding-site recovery
-      score_utils.py          RMSD matrix and CORE
-      evaluation_utils.py     reference labels and summary
-      decision_utils.py       top-ranked pose, cutoffs, coverage and accuracy
+    preparation.py        structures and ligand chemistry
+    posebusters.py        dock checks for every pose
+    site_assignment.py    one ensemble per ligand site
+    comparison.py         every pair, with binding-site recovery
+    scoring.py            RMSD matrix and CORE per threshold
+    evaluation.py         optional reference comparison
+    decisions.py          accepted ensembles and top poses per cutoff
+    plotting.py           figures from saved results
+  structure/
+    cif.py                read, filter and write structure records
+    chemistry.py          ligand selection and chemical identity
+    sdf.py                coordinate-preserving ligand molecules
 ```
 
-[The code map](docs/code-map.md) diagrams every file and function and the data passed
-between them.
+[The code map](docs/code-map.md) draws the whole run, then each stage, function by
+function, and lists every check.
 
 ## Tests
 

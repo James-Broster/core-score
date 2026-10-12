@@ -4,8 +4,7 @@ import argparse
 import math
 import sys
 from pathlib import Path
-from core_score.inputs import load_inputs
-from core_score.pipeline import execute
+from core_score.pipeline import run
 
 
 def positive(value):
@@ -64,21 +63,17 @@ def main(argv=None):
     words = sys.argv[1:] if argv is None else argv
     args = parser().parse_args(words or ["--help"])
     try:
-        groups = load_inputs(
+        summary = run(
             args.inputs,
+            args.out,
             smiles=args.smiles,
             ligand_chains=args.ligand_chains,
             reference=args.reference,
             evaluate_reference=args.evaluate_reference,
-        )
-        summary = execute(
-            groups,
-            args.out,
             workers=args.workers,
             timeout=args.timeout,
             radius_fallback=not args.no_radius_fallback,
             skip_posebusters=args.skip_posebusters,
-            evaluate_reference=args.evaluate_reference,
             thresholds=args.rmsd_thresholds,
             cutoffs=args.core_cutoffs,
             plots=args.plots,

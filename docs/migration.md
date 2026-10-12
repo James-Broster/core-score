@@ -5,13 +5,13 @@ The package imports none of those scripts.
 
 | Original source | Responsibility in this package |
 | --- | --- |
-| `cofold-ost/prepare.py`, `production/cif_record_fix.py`, `filter_cif_records.py` | `stages/utils/preparation/cif.py`, `prepare.py`. Gemmi parsing with retained-record verification. |
-| `original-scoring/ligand_identity.py` | `stages/utils/preparation/chemistry.py`, `sdf.py`. Ligand selection and explicit connectivity SDFs. |
+| `cofold-ost/prepare.py`, `production/cif_record_fix.py`, `filter_cif_records.py` | `structure/cif.py`, `stages/preparation.py`. Gemmi parsing with retained-record verification. |
+| `original-scoring/ligand_identity.py` | `structure/chemistry.py`, `structure/sdf.py`. Ligand selection and explicit connectivity SDFs. |
 | `production/xyz_fix.py` | Direct atom and conformer construction, with no RDKit monkeypatch. |
-| `pb_compute/worker.py`, `pb_every_copy/copy_worker.py` | `stages/utils/preparation/sdf.py`, `stages/utils/posebusters_utils.py`. Template graph bijection, native AF3 graph, peer atom-name graph reuse, identity and coordinate checks, every-copy PB. |
-| `cofold-ost/compare.py`, `radius.py` | `stages/utils/ost.py`, `comparison_utils.py`, `radius.py`. The same OST flags, assignment extraction and eligible recovery. |
-| `original-scoring/site_correspondence.py`, `multicopy_site_pairwise.py` | `stages/utils/sites.py`, `stages/site_assignment.py`. OST rigid mapping and k-means/Hungarian correspondence, then one matrix per site. |
-| `original-scoring/core_score.py` | `stages/utils/score_utils.py`. Replaced in 0.3.0 by the paper's nearest-neighbour CORE. |
+| `pb_compute/worker.py`, `pb_every_copy/copy_worker.py` | `structure/sdf.py`, `stages/posebusters.py`. Template graph bijection, native AF3 graph, peer atom-name graph reuse, identity and coordinate checks, every-copy PB. |
+| `cofold-ost/compare.py`, `radius.py` | `ost.py`, `stages/comparison.py`. The same OST flags, assignment extraction and eligible recovery. |
+| `original-scoring/site_correspondence.py`, `multicopy_site_pairwise.py` | `stages/site_assignment.py`. OST rigid mapping and k-means/Hungarian correspondence, then one matrix per site. |
+| `original-scoring/core_score.py` | `stages/scoring.py`. Replaced in 0.3.0 by the paper's nearest-neighbour CORE. |
 | `production/resume.py`, `pairs.py` | Removed. Every run is fresh. |
 
 Cluster paths, submission logic, node assertions, hardcoded repair approvals and

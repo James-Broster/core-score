@@ -13,9 +13,9 @@ from pathlib import Path
 
 from core_score.stages.comparison import compare_groups
 from core_score.stages.preparation import prepare_groups
-from core_score.stages.utils import ost
-from core_score.stages.utils.comparison_utils import summarize
-from core_score.stages.utils.preparation.prepare import prepare_pose
+from core_score import ost
+from core_score.stages.comparison import summarize
+from core_score.stages.preparation import prepare_pose
 
 # pairs.csv columns renamed since the fixtures were frozen; removed columns are not compared.
 RENAMED = {"bb_rmsd_mean": "bb_rmsd", "lddt_lp_mean": "lddt_lp"}

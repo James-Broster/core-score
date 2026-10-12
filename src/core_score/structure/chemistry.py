@@ -4,7 +4,7 @@ from collections import Counter
 import numpy as np
 from rdkit import Chem
 from rdkit.Geometry import Point3D
-from core_score.stages.utils.preparation.cif import ligand_residues
+from core_score.structure.cif import ligand_residues
 
 
 def template_mol(smiles):

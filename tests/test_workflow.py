@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from core_score import core_score
 from core_score.stages.scoring import score_groups
-from core_score.stages.utils.score_utils import build_matrix
+from core_score.stages.scoring import build_matrix
 from core_score.cli import parser
-from core_score.stages.utils.posebusters_utils import aggregate
+from core_score.stages.posebusters import aggregate
 from core_score.stages.posebusters import run_posebusters
 from core_score.inputs import load_inputs
 
@@ -140,14 +140,14 @@ def test_reference_threshold_boundary_is_strict(tmp_path):
     row = dict(ensemble="g", site="reference", pose_i="p", pose_j="reference", rmsd=1.0, error="")
     prepared_reference = dict(reference, prepared=dict(copies=1))
     with patch("core_score.stages.evaluation.prepare", return_value=prepared_reference), \
-            patch("core_score.stages.utils.comparison_utils.pair_job", return_value=(row, {})) as compare:
+            patch("core_score.stages.comparison.pair_job", return_value=(row, {})) as compare:
         labels = evaluate_groups([group], [], tmp_path, [0.5, 1.0, 1.5, 2.0])
     assert compare.call_count == 1
     assert [r["success"] for r in labels] == [False, False, True, True]
 
 
 def test_top_pose_is_the_valid_pose_with_highest_confidence():
-    from core_score.stages.utils.decision_utils import top_pose
+    from core_score.stages.decisions import top_pose
 
     group = dict(poses=[dict(pose_id="a", confidence=0.9), dict(pose_id="b", confidence=0.7),
                         dict(pose_id="c", confidence=0.7), dict(pose_id="d", confidence=0.95)])
@@ -159,7 +159,7 @@ def test_top_pose_is_the_valid_pose_with_highest_confidence():
 
 
 def test_decisions_per_cutoff_and_summary():
-    from core_score.stages.utils.decision_utils import decide, summarize_cutoffs
+    from core_score.stages.decisions import decide, summarize_cutoffs
 
     groups = [dict(ensemble="g", poses=[dict(pose_id="a", confidence=0.8), dict(pose_id="b", confidence=0.6)]),
               dict(ensemble="h", poses=[dict(pose_id="a", confidence=0.9)]),

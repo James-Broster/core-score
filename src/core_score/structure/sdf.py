@@ -3,7 +3,7 @@
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
-from core_score.stages.utils.preparation.chemistry import atom_name, coordinate_mol, heavy_atoms, identity, native_graph, template_mol
+from core_score.structure.chemistry import atom_name, coordinate_mol, heavy_atoms, identity, native_graph, template_mol
 
 
 def generic_graph(mol):

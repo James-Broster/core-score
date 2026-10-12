@@ -26,3 +26,16 @@ def test_help(words, capsys):
         main(words)
     assert exc.value.code == 0
     assert "inputs.json" in capsys.readouterr().out
+
+
+def test_python_run_loads_inputs_then_executes(tmp_path):
+    from unittest.mock import patch
+    import core_score
+
+    with patch("core_score.pipeline.load_inputs", return_value=["groups"]) as load, \
+            patch("core_score.pipeline.execute", return_value="summary") as execute:
+        assert core_score.run("inputs.json", tmp_path, smiles="CCO", workers=4) == "summary"
+    assert load.call_args.args[0] == ["inputs.json"]
+    assert load.call_args.kwargs["smiles"] == "CCO"
+    assert execute.call_args.args == (["groups"], tmp_path)
+    assert execute.call_args.kwargs == dict(evaluate_reference=False, workers=4)

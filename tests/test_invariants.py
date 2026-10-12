@@ -11,9 +11,9 @@ from unittest.mock import patch
 import gemmi
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.stages.utils.comparison_utils import pair_job, summarize
-from core_score.stages.utils.preparation.prepare import prepare_pose
-from core_score.stages.utils.preparation.cif import filter_records, ligand_residues, read_document
+from core_score.stages.comparison import pair_job, summarize
+from core_score.stages.preparation import prepare_pose
+from core_score.structure.cif import filter_records, ligand_residues, read_document
 
 
 class SummaryTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class SummaryTests(unittest.TestCase):
         prepared = dict(path="model.cif", ligand_sdfs=[], copies=1)
         pose = lambda name: dict(pose_id=name, path=name, prepared=prepared)
         with patch(
-            "core_score.stages.utils.ost.subprocess.run",
+            "core_score.ost.subprocess.run",
             side_effect=subprocess.TimeoutExpired("ost", 1),
         ):
             row, detail = pair_job((dict(ensemble="e", site="1"), pose("a"), pose("b")))
