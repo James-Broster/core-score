@@ -64,6 +64,8 @@ def make_group(ensemble, base, defaults):
     poses = [make_pose(record, i, base, shared, name) for i, record in enumerate(ensemble["poses"])]
     if len({pose["pose_id"] for pose in poses}) != len(poses):
         raise ValueError(f"{name}: pose IDs must be unique")
+    if len({"confidence" in pose for pose in poses}) != 1:
+        raise ValueError(f"{name}: give a confidence for every pose or for none")
     poses.sort(key=lambda pose: (pose["seed"], pose["sample"], pose["pose_id"]))
     return dict(ensemble=name, poses=poses)
 
@@ -79,6 +81,8 @@ def make_pose(record, index, base, shared, ensemble):
     )
     if pose.get("ligand_sdfs"):
         pose["ligand_sdfs"] = [resolve(base, path) for path in pose["ligand_sdfs"]]
+    if "confidence" in pose:
+        pose["confidence"] = float(pose["confidence"])
     return pose
 
 

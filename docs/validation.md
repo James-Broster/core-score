@@ -8,7 +8,7 @@ before relying on it.
 
 What has been checked.
 
-- **57 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
+- **61 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
 - **Equivalence with 0.2.0.** Both versions were run on the same ensembles with a
   stand-in `ost` executable that computes ligand RMSD from coordinates. The ensembles
   covered single-copy and two-copy predictions, an OST-undetectable ligand, original

@@ -15,6 +15,13 @@ def positive(value):
     return number
 
 
+def fraction(value):
+    number = float(value)
+    if not 0 <= number <= 1:
+        raise argparse.ArgumentTypeError("must be between 0 and 1")
+    return number
+
+
 def worker_count(value):
     number = int(value)
     if number < 1:
@@ -47,6 +54,8 @@ def parser():
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
                    help="Thresholds T in angstroms: CORE is calculated at each, and reference "
                         "success means RMSD < T (default: 2)")
+    p.add_argument("--core-cutoffs", type=fraction, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9],
+                   help="CORE Scores at or above a cutoff count as likely correct (default: 0.5 to 0.9)")
     p.add_argument("--plots", action="store_true", help="Generate plots after the analysis")
     return p
 
@@ -71,6 +80,7 @@ def main(argv=None):
             skip_posebusters=args.skip_posebusters,
             evaluate_reference=args.evaluate_reference,
             thresholds=args.rmsd_thresholds,
+            cutoffs=args.core_cutoffs,
             plots=args.plots,
         )
     except (ValueError, OSError, RuntimeError) as exc:

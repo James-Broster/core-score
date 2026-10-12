@@ -144,3 +144,52 @@ def test_reference_threshold_boundary_is_strict(tmp_path):
         labels = evaluate_groups([group], [], tmp_path, [0.5, 1.0, 1.5, 2.0])
     assert compare.call_count == 1
     assert [r["success"] for r in labels] == [False, False, True, True]
+
+
+def test_top_pose_is_the_valid_pose_with_highest_confidence():
+    from core_score.stages.utils.decision_utils import top_pose
+
+    group = dict(poses=[dict(pose_id="a", confidence=0.9), dict(pose_id="b", confidence=0.7),
+                        dict(pose_id="c", confidence=0.7), dict(pose_id="d", confidence=0.95)])
+    validity = dict(a=False, b=True, c=True, d=None)
+    assert top_pose(group, validity)[0]["pose_id"] == "b"  # a invalid, d unknown, b wins the tie
+    assert top_pose(group, None) == (None, "PoseBusters was skipped")
+    assert top_pose(group, dict(a=False))[1] == "no PoseBusters-valid pose"
+    assert top_pose(dict(poses=[dict(pose_id="a")]), dict(a=True))[1] == "no confidences given"
+
+
+def test_decisions_per_cutoff_and_summary():
+    from core_score.stages.utils.decision_utils import decide, summarize_cutoffs
+
+    groups = [dict(ensemble="g", poses=[dict(pose_id="a", confidence=0.8), dict(pose_id="b", confidence=0.6)]),
+              dict(ensemble="h", poses=[dict(pose_id="a", confidence=0.9)]),
+              dict(ensemble="u", poses=[dict(pose_id="a", confidence=0.9)])]
+    scores = [dict(ensemble="g", site="1", threshold_angstrom=2.0, core_score=0.9, error=None),
+              dict(ensemble="h", site="1", threshold_angstrom=2.0, core_score=0.6, error=None),
+              dict(ensemble="u", site="unresolved", threshold_angstrom=2.0, core_score=None, error="ValueError: x")]
+    validity = dict(g=dict(a=True, b=True), h=dict(a=True), u=dict(a=True))
+    labels = [dict(ensemble="g", pose_id="a", threshold_angstrom=2.0, success=True),
+              dict(ensemble="h", pose_id="a", threshold_angstrom=2.0, success=False)]
+    rows = decide(groups, scores, validity, labels, [0.5, 0.7])
+    assert [(r["ensemble"], r["core_cutoff"], r["likely_correct"]) for r in rows] == [
+        ("g", 0.5, True), ("g", 0.7, True), ("h", 0.5, True), ("h", 0.7, False), ("u", 0.5, None), ("u", 0.7, None)]
+    assert rows[0]["top_pose"] == "a" and rows[0]["top_pose_correct"] is True
+    summary = summarize_cutoffs(rows)
+    assert [(s["core_cutoff"], s["scored"], s["accepted"], s["accuracy"]) for s in summary] == [
+        (0.5, 2, 2, 0.5), (0.7, 2, 1, 1.0)]
+
+
+def test_confidence_is_given_for_every_pose_or_none(tmp_path):
+    for name in ("a.cif", "b.cif"):
+        (tmp_path / name).write_text("x")
+    manifest = tmp_path / "poses.json"
+    manifest.write_text(json.dumps({"ensembles": [{"ensemble": "g", "smiles": "CCO", "poses": [
+        {"path": "a.cif", "confidence": 0.8}, {"path": "b.cif"}]}]}))
+    with pytest.raises(ValueError, match="confidence"):
+        load_inputs([manifest])
+
+
+def test_core_cutoffs_default_and_range():
+    assert parser().parse_args(["a.cif", "--out", "o"]).core_cutoffs == [0.5, 0.6, 0.7, 0.8, 0.9]
+    with pytest.raises(SystemExit):
+        parser().parse_args(["a.cif", "--out", "o", "--core-cutoffs", "1.5"])
