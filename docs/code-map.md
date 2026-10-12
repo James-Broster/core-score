@@ -7,8 +7,8 @@ How a run moves through `core_score`. Every diagram reads the same way:
 - The rounded boxes between rungs are what's handed to the next step.
 - Dashed boxes are files written. Amber functions call OpenStructure through `ost.py`.
 
-`pipeline.execute()` runs the rungs of the first diagram in order. The result file goes
-in the output folder and everything behind it in `details/`.
+`pipeline.execute()` runs the rungs of the first diagram in order. The result files go
+in the output folder and everything behind them in `details/`.
 
 ## The whole run
 
@@ -61,18 +61,18 @@ flowchart TB
 
     subgraph R7["7 · evaluation.py"]
         direction LR
-        i1["evaluate_groups()<br/>with --evaluate-reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json<br/>reference_evaluation.csv"/]:::file
+        i1["evaluate_groups()<br/>with --evaluate-reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json"/]:::file
     end
     d7(["CORE and reference labels"]):::data
 
     subgraph R8["8 · report.py"]
         direction LR
-        j1["write_report()"]:::fn --> j2["core_table()"]:::fn --> j3["top_pose()"]:::fn --> j5[/"core_scores.csv"/]:::file
+        j1["write_report()"]:::fn --> j2["core_table()"]:::fn --> j3["top_pose()"]:::fn --> j4["pose_table()"]:::fn --> j5[/"core_scores.csv · poses.csv"/]:::file
     end
 
-    subgraph R9["9 · pipeline.py"]
+    subgraph R9["9 · plotting.py and pipeline.py"]
         direction LR
-        k1["summarize_run()"]:::fn --> k2[/"status.json · exit code"/]:::file
+        k0["plot_core_scores()<br/>with --plot"]:::fn --> k1[/"core_scores.png"/]:::file --> k2["summarize_run()"]:::fn --> k3[/"status.json · exit code"/]:::file
     end
 
     start --> R1 --> d1 --> R2 --> d2 --> R3 --> d3 --> R4 --> d4 --> R5 --> d5 --> R6 --> d6 --> R7 --> d7 --> R8 --> R9
@@ -370,7 +370,7 @@ flowchart TB
 
     subgraph E3["evaluation.py · label"]
         direction LR
-        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T"]:::fn --> c4[/"reference_evaluation.csv"/]:::file
+        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T"]:::fn
     end
     d3(["one label row per pose"]):::data
 
@@ -401,10 +401,21 @@ flowchart TB
         direction LR
         b1["core_table()"]:::fn --> b2["top_pose()<br/>valid pose with highest confidence"]:::fn --> b3["above each cutoff<br/>CORE ≥ cutoff"]:::fn --> b4[/"core_scores.csv"/]:::file
     end
+    d2(["one row per complex and T"]):::data
 
-    start --> D1 --> d1 --> D2
+    subgraph D3["report.py · poses"]
+        direction LR
+        c1["pose_table()<br/>confidence, validity and reference<br/>for every pose"]:::fn --> c2[/"poses.csv"/]:::file
+    end
 
-    class D1,D2 stage
+    subgraph D4["plotting.py"]
+        direction LR
+        e1["plot_core_scores()<br/>with --plot"]:::fn --> e2["stack()<br/>a dot per complex"]:::fn --> e3[/"core_scores.png"/]:::file
+    end
+
+    start --> D1 --> d1 --> D2 --> d2 --> D3 --> D4
+
+    class D1,D2,D3,D4 stage
 ```
 
 ## Every check, and what happens when it fails
@@ -440,6 +451,7 @@ run carries on.
 | `scoring.py` | Every pair has a usable RMSD, and there are at least two poses | No CORE, reason saved |
 | `evaluation.py` | The reference and the prediction both prepared, and the RMSD is known | Label unknown (blank) |
 | `report.py` | Confidences given, PoseBusters run, and at least one valid pose | No top pose, `note` says why |
+| `plotting.py` | matplotlib is installed, only with `--plot` | ImportError, after the files are written |
 | `pipeline.py` | Nothing above left anything incomplete | Exit 1 |
 
 ## Every function
@@ -536,16 +548,24 @@ run carries on.
 ### `stages/evaluation.py`
 | Function | Does |
 | --- | --- |
-| `evaluate_groups(groups, output, thresholds, ...)` | Prepares each reference, compares every pose with it, writes `reference_details.json` and `reference_evaluation.csv`. Returns one label row per pose, in input order. |
+| `evaluate_groups(groups, output, thresholds, ...)` | Prepares each reference, compares every pose with it, writes `reference_details.json`. Returns one label row per pose, in input order, for `poses.csv`. |
 | `label_reference_results(records, thresholds)` | Correct means RMSD < T. Failed or ambiguous is unknown. |
-| `correct_column(threshold)` | The column name, such as `rmsd_below_2A`. |
+| `correct_column(threshold)` | The `poses.csv` column name, such as `rmsd_below_2A`. |
 
 ### `stages/report.py`
 | Function | Does |
 | --- | --- |
-| `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv`. |
+| `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv` and `poses.csv`. |
 | `top_pose(group, validity)` | The PoseBusters-valid pose with the highest confidence, or the reason there is none. |
 | `core_table(...)` | One row per complex and T: CORE, above each cutoff, pose counts, the top pose, and reference results. |
+| `pose_table(groups, pb_records, labels, ranked)` | One row per pose: confidence, PoseBusters result and reference RMSD. |
+| `message(error)` | The one-line message of a diagnostic record. |
+
+### `stages/plotting.py`
+| Function | Does |
+| --- | --- |
+| `plot_core_scores(rows, output, bin_width)` | `core_scores.png` per T: a dot per complex. Imports matplotlib only when called. |
+| `stack(scores, bin_width)` | Dot positions: one column per bin, stacked. |
 
 ### `structure/cif.py`
 | Function | Does |

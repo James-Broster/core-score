@@ -1,6 +1,5 @@
-"""Write core_scores.csv, the file a user reads: every complex's CORE Score, whether it is
-above each cutoff, its top-ranked pose and, with references, how many of its poses are
-correct. Everything else is in details/."""
+"""Write the two files a user reads: core_scores.csv, one row per complex, and poses.csv,
+one row per pose. Everything behind them is in details/."""
 
 from core_score.results import write_csv
 from core_score.stages.evaluation import correct_column
@@ -13,6 +12,7 @@ def write_report(groups, scores, pb_records, labels, output, cutoffs=(0.5, 0.6, 
     ranked = any("confidence" in group["poses"][0] for group in groups)
     rows = core_table(groups, scores, validity, labels, cutoffs, ranked)
     write_csv(output / "core_scores.csv", rows)
+    write_csv(output / "poses.csv", pose_table(groups, pb_records, labels, ranked))
     return rows
 
 
@@ -68,3 +68,37 @@ def core_table(groups, scores, validity, labels, cutoffs, ranked):
     rows.sort(key=lambda r: (r["threshold_angstrom"], r["core_score"] is None, -(r["core_score"] or 0)))
     return rows
 
+
+
+def pose_table(groups, pb_records, labels, ranked):
+    """One row per pose: its confidence, PoseBusters result and, with references, its RMSD.
+
+    Columns that do not apply are left out, and a blank is unknown. The reference columns
+    are whichever `label_reference_results()` produced, so there is one per threshold.
+    """
+    checks = {(r["ensemble"], r["pose_id"]): r for r in pb_records or []}
+    measured = {(label["ensemble"], label["pose_id"]): label for label in labels}
+    rows = []
+    for group in groups:
+        for pose in group["poses"]:
+            key = (pose["ensemble"], pose["pose_id"])
+            row = dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"])
+            if ranked:
+                row["confidence"] = pose.get("confidence")
+            record = checks.get(key)
+            if pb_records is not None:
+                row["pb_valid"] = record["pb_valid"] if record else None
+                failed = (record or {}).get("checks") or {}
+                row["failed_checks"] = "; ".join(name for name, passed in failed.items() if passed is False)
+            label = measured.get(key, {})
+            for name, value in label.items():
+                if name not in ("ensemble", "pose_id", "error", "radius_fallback_used"):
+                    row[name] = value
+            row["note"] = message(pose.get("error")) or (record or {}).get("error") or message(label.get("error"))
+            rows.append(row)
+    return rows
+
+
+def message(error):
+    """The one-line message of a diagnostic record, or of a plain error string."""
+    return (error["error"] if isinstance(error, dict) else error) or None

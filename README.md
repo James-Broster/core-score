@@ -37,7 +37,7 @@ OpenStructure 2.12 build. Alternatively, activate an environment containing
 **OpenStructure 2.12** and install with pip.
 
 ```bash
-python -m pip install -e '.[test]'
+python -m pip install -e '.[plot,test]'
 core-score --help
 ```
 
@@ -117,6 +117,7 @@ generated structures, not an importer for a prediction model's own input JSON.
 | `--no-radius-fallback` | Disable the 4 → 6 → 8 Å binding-site recovery. |
 | `--skip-posebusters` | Do not run PoseBusters. CORE is unaffected. |
 | `--evaluate-reference` | Also compare predictions with supplied reference structures. |
+| `--plot` | Also save `core_scores.png`, a dot per complex. Needs matplotlib. |
 | `--reference FILE` | Reference for structure files given directly (JSON sets its own). |
 
 ## PoseBusters
@@ -183,8 +184,10 @@ A complex is one ensemble, or one ligand site of a multi-copy ensemble.
 
 ```text
 results/
-  core_scores.csv     CORE for every complex
-  details/            the evidence behind it
+  core_scores.csv     one row per complex
+  poses.csv           one row per pose
+  core_scores.png     a dot per complex, with --plot
+  details/            the evidence behind them
 ```
 
 **`core_scores.csv`** has one row per complex and T, highest CORE first and unscored
@@ -200,6 +203,22 @@ complexes last.
 | `fraction_correct`, `top_pose_correct` | With references: the fraction of poses below T, and whether the top pose is. |
 | `note` | Why CORE or the top pose is missing. |
 
+**`poses.csv`** has one row per pose, in input order.
+
+| Column | Meaning |
+| --- | --- |
+| `ensemble`, `pose_id` | The pose. |
+| `confidence` | The model's own score, when confidences are given. |
+| `pb_valid`, `failed_checks` | PoseBusters validity and the checks it failed, by name. |
+| `rmsd`, `lddt_pli` | To the reference, with `--evaluate-reference`. |
+| `rmsd_below_2A` | Whether the pose is correct at T, one column per T. |
+| `note` | Why a result is missing. |
+
+A blank is unknown, never a pass or a failure.
+
+**`core_scores.png`**, with `--plot`, is a dot plot of every complex's CORE Score, one
+PNG per T. It needs matplotlib, from `pip install -e '.[plot]'`.
+
 **`details/`** holds the evidence behind those files.
 
 | File | Contents |
@@ -207,7 +226,6 @@ complexes last.
 | `pairs.csv` | Ligand RMSD, pocket backbone RMSD, pocket lDDT and lDDT-PLI per pair, with radius recovery fields |
 | `ligand_details.jsonl` | Raw OST results, commands and output for every pair |
 | `posebusters.json` | PoseBusters validity, every dock check and every raw result per pose and copy |
-| `reference_evaluation.csv` | Each pose's RMSD and lDDT-PLI to its reference and whether it is below each T |
 | `reference_details.json`, `references/` | Raw reference comparisons and prepared references |
 | `prepared_manifest.json`, `prepared/` | Prepared structures, SDFs and receptors |
 | `sites.json` | Site assignments for multi-copy ensembles |
@@ -235,7 +253,8 @@ src/core_score/
     comparison.py         every pair, with binding-site recovery
     scoring.py            RMSD matrix and CORE per threshold
     evaluation.py         optional reference comparison
-    report.py             core_scores.csv: CORE, cutoffs, top poses
+    report.py             core_scores.csv and poses.csv
+    plotting.py           core_scores.png, with --plot
   structure/
     cif.py                read, filter and write structure records
     chemistry.py          ligand selection and chemical identity

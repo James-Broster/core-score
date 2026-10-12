@@ -53,6 +53,8 @@ def parser():
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
                    help="Thresholds T in angstroms: CORE is calculated at each, and a pose is "
                         "correct when its RMSD to the reference is below T (default: 2)")
+    p.add_argument("--plot", action="store_true",
+                   help="Also save core_scores.png: a dot per complex (needs matplotlib)")
     p.add_argument("--core-cutoffs", type=fraction, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9],
                    help="CORE cutoffs: each complex is reported as above (CORE >= cutoff) or below "
                         "each one (default: 0.5 to 0.9)")
@@ -76,6 +78,7 @@ def main(argv=None):
             skip_posebusters=args.skip_posebusters,
             thresholds=args.rmsd_thresholds,
             cutoffs=args.core_cutoffs,
+            plot=args.plot,
         )
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"core-score: {exc}", file=sys.stderr)

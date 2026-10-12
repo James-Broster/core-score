@@ -1,7 +1,7 @@
 """Optional comparison of every prediction against its ensemble's ground-truth structure."""
 
 import math
-from core_score.results import fingerprint, write_csv, write_json
+from core_score.results import fingerprint, write_json
 from core_score.stages.comparison import run_pair_tasks
 from core_score.stages.preparation import prepare
 
@@ -24,10 +24,8 @@ def evaluate_groups(groups, output, thresholds=(2.0,), *, workers=1, timeout=Non
     write_json(output / "reference_details.json", records)
     keys = ((group["ensemble"], pose["pose_id"]) for group in groups for pose in group["poses"])
     order = {key: i for i, key in enumerate(keys)}
-    labels = sorted(label_reference_results(records, thresholds),
-                    key=lambda label: order[label["ensemble"], label["pose_id"]])
-    write_csv(output / "reference_evaluation.csv", labels)
-    return labels
+    labels = label_reference_results(records, thresholds)
+    return sorted(labels, key=lambda label: order[label["ensemble"], label["pose_id"]])
 
 
 def correct_column(threshold):

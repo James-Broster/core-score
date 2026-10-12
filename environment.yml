@@ -7,4 +7,4 @@ dependencies:
   - openstructure=2.12
   - pip
   - pip:
-      - -e .[test]
+      - -e .[plot,test]

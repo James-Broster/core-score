@@ -42,6 +42,7 @@ def execute(
     evaluate_reference=False,
     thresholds=(2.0,),
     cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9),
+    plot=False,
 ):
     """Run the full analysis on loaded ensembles and return completion counts.
 
@@ -56,7 +57,7 @@ def execute(
     write_json(details / "run.json", dict(
         package_version=__version__, posebusters_version=version("posebusters"), timeout=timeout,
         radius_fallback=radius_fallback, workers=workers, skip_posebusters=skip_posebusters,
-        thresholds=thresholds, core_cutoffs=cutoffs, evaluate_reference=evaluate_reference,
+        thresholds=thresholds, core_cutoffs=cutoffs, evaluate_reference=evaluate_reference, plot=plot,
     ))
 
     print("Preparing structures and ligand chemistry", flush=True)
@@ -74,7 +75,10 @@ def execute(
         print("Comparing poses with their references", flush=True)
         labels = evaluate_groups(prepared, details, thresholds, workers=workers, timeout=timeout,
                                  radius_fallback=radius_fallback)
-    write_report(prepared, scores, pb_records, labels, output, cutoffs)
+    rows_by_complex = write_report(prepared, scores, pb_records, labels, output, cutoffs)
+    if plot:
+        from core_score.stages.plotting import plot_core_scores
+        plot_core_scores(rows_by_complex, output)
 
     summary = summarize_run(scores, rows, sites, labels)
     write_json(details / "status.json", summary["status"])

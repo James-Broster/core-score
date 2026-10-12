@@ -2,6 +2,7 @@ import json
 from unittest.mock import Mock, patch
 import numpy as np
 import pytest
+from pytest import approx
 from core_score import core_score
 from core_score.stages.scoring import score_groups
 from core_score.stages.scoring import build_matrix
@@ -208,7 +209,7 @@ def test_core_table_has_one_row_per_complex_best_first():
     assert rows[2]["note"] == "ValueError: x"
 
 
-def test_report_is_one_file_with_only_the_columns_that_apply(tmp_path):
+def test_report_files_only_have_the_columns_that_apply(tmp_path):
     import csv
     from core_score.stages.report import write_report
 
@@ -219,7 +220,35 @@ def test_report_is_one_file_with_only_the_columns_that_apply(tmp_path):
     write_report(groups, scores, None, [], tmp_path, cutoffs=(0.5,))
     header = next(csv.reader((tmp_path / "core_scores.csv").open()))
     assert header == ["ensemble", "site", "threshold_angstrom", "core_score", "above_0.5", "pose_count", "note"]
-    assert [path.name for path in tmp_path.iterdir()] == ["core_scores.csv"]
+    assert next(csv.reader((tmp_path / "poses.csv").open())) == ["ensemble", "pose_id", "note"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["core_scores.csv", "poses.csv"]
+
+
+def test_poses_table_joins_confidence_validity_and_reference():
+    from core_score.stages.report import pose_table
+
+    groups, _, _, labels = report_inputs()
+    labels = [dict(label, rmsd=0.4, lddt_pli=0.9, radius_fallback_used=True) for label in labels]
+    pb_records = [dict(ensemble="g", pose_id="a", pb_valid=True, checks=dict(bond_lengths=True)),
+                  dict(ensemble="g", pose_id="b", pb_valid=False,
+                       checks=dict(bond_lengths=False, internal_energy=None))]
+    groups[2]["poses"][0]["error"] = dict(error="ValueError: no ligand")
+    rows = pose_table(groups, pb_records, labels, ranked=True)
+    assert [(r["ensemble"], r["pose_id"]) for r in rows] == [
+        ("h", "a"), ("g", "a"), ("g", "b"), ("u", "a")]
+    assert rows[1] == dict(ensemble="g", pose_id="a", confidence=0.8, pb_valid=True, failed_checks="",
+                           rmsd=0.4, lddt_pli=0.9, rmsd_below_2A=True, note=None)
+    assert rows[2]["failed_checks"] == "bond_lengths"  # unknown checks are not failures
+    assert rows[0]["pb_valid"] is None  # PoseBusters has no record for this pose
+    assert rows[3]["note"] == "ValueError: no ligand"
+
+
+def test_plot_stacks_dots_that_share_a_score():
+    from core_score.stages.plotting import stack
+
+    x, y = stack([0.10, 0.105, 0.11, 0.40], bin_width=0.02)
+    assert x == approx([0.11, 0.11, 0.11, 0.41])  # one column per bin, drawn at its middle
+    assert y == [1, 2, 3, 1]
 
 
 def test_confidence_is_given_for_every_pose_or_none(tmp_path):
