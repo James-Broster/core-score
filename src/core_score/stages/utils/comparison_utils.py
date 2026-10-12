@@ -4,96 +4,11 @@ import json
 import itertools
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
-import os
-import subprocess
-import tempfile
-from pathlib import Path
 import numpy as np
+from core_score.stages.utils.ost import run_ost
 from core_score.stages.utils.radius import score_with_radius_fallback
-from core_score.results import diagnostic, write_json, write_csv, file_hash
+from core_score.results import diagnostic
 
-
-def run_ost(model, reference, ost="ost", timeout=None, chemlib=None, radius=4.0):
-    env = dict(
-        os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1"
-    )
-    if chemlib:
-        env["OST_COMPOUNDS_CHEMLIB"] = str(Path(chemlib).resolve())
-    with tempfile.TemporaryDirectory() as directory:
-        output = str(Path(directory) / "ost.json")
-        command = [ost, "compare-ligand-structures", "-m", model["path"]]
-        if model.get("ligand_sdfs"):
-            command += ["-ml", *model["ligand_sdfs"]]
-        command += ["-r", reference["path"]]
-        if reference.get("ligand_sdfs"):
-            command += ["-rl", *reference["ligand_sdfs"]]
-        command += [
-            "--fault-tolerant",
-            "--rmsd",
-            "--full-bs-search",
-            "--full-results",
-            "--lddt-pli",
-            "--lddt-pli-add-mdl-contacts",
-            "-o",
-            output,
-        ]
-        if radius != 4.0:
-            command += ["--radius", str(radius)]
-        evidence = dict(
-            command=command,
-            timeout=timeout,
-            radius=radius,
-            chemlib=env.get("OST_COMPOUNDS_CHEMLIB"),
-            model=model,
-            reference=reference,
-        )
-        try:
-            process = subprocess.run(
-                command, env=env, capture_output=True, text=True, timeout=timeout
-            )
-            evidence.update(
-                returncode=process.returncode,
-                stdout=process.stdout,
-                stderr=process.stderr,
-            )
-            evidence["raw_output"] = (
-                Path(output).read_text() if Path(output).exists() else None
-            )
-            result = json.loads(Path(output).read_text())
-            if process.returncode and result.get("status") != "FAILURE":
-                result = dict(
-                    result, status="FAILURE", exception=process.stderr[-2000:]
-                )
-            if result.get("status") not in ("SUCCESS", "FAILURE"):
-                result.update(
-                    status="FAILURE", exception="OST did not report a recognised status"
-                )
-            result["_execution"] = evidence
-            return result
-        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-            if isinstance(exc, subprocess.TimeoutExpired):
-                evidence.update(
-                    stdout=(
-                        exc.stdout.decode(errors="replace")
-                        if isinstance(exc.stdout, bytes)
-                        else exc.stdout
-                    ),
-                    stderr=(
-                        exc.stderr.decode(errors="replace")
-                        if isinstance(exc.stderr, bytes)
-                        else exc.stderr
-                    ),
-                )
-            report = diagnostic("comparison", exc, **evidence)
-            if isinstance(exc, subprocess.TimeoutExpired):
-                report["suggestion"] = (
-                    "Retry with a larger --timeout or omit --timeout for no limit."
-                )
-            return dict(
-                status="FAILURE",
-                exception=f"{type(exc).__name__}: {exc}",
-                _execution=report,
-            )
 
 
 def summarize(group, pose_i, pose_j, model, reference, result):
@@ -333,29 +248,6 @@ def prepare_pair_tasks(groups, *, ost="ost", chemlib=None, timeout=None):
     return tasks, rows, details
 
 
-def write_pair_results(groups, rows, details, output, provenance):
-    output = Path(output)
-    for group in groups:
-        group["input_fingerprints"] = {
-            p["pose_id"]: {
-                f: file_hash(f)
-                for f in (
-                    [p["prepared"]["path"]] + p["prepared"].get("ligand_sdfs", [])
-                )
-            }
-            for p in group["poses"]
-            if "prepared" in p
-        }
-    write_csv(output / "pairs.csv", rows)
-    with (output / "ligand_details.jsonl").open("w") as handle:
-        from core_score.results import clean
-
-        for detail in details:
-            handle.write(json.dumps(clean(detail), allow_nan=False) + "\n")
-    write_json(
-        output / "analysis_manifest.json",
-        dict(schema="core-score.analysis.v1", groups=groups, provenance=provenance),
-    )
 
 
 def run_pair_tasks(tasks, workers=1, *, ost="ost", chemlib=None, timeout=None, radius_fallback=True):

@@ -12,8 +12,9 @@ from unittest.mock import patch
 import gemmi
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.stages.utils.comparison_utils import summarize, run_ost
-from core_score.stages.utils.prepare_utils import prepare_pose
+from core_score.stages.utils.comparison_utils import summarize
+from core_score.stages.utils.ost import run_ost
+from core_score.stages.utils.preparation.prepare import prepare_pose
 from core_score.stages.utils.preparation.cif import filter_records, ligand_residues, read_document
 
 
@@ -88,7 +89,7 @@ class SummaryTests(unittest.TestCase):
         import subprocess
 
         with patch(
-            "core_score.stages.utils.comparison_utils.subprocess.run",
+            "core_score.stages.utils.ost.subprocess.run",
             side_effect=subprocess.TimeoutExpired("ost", 1),
         ):
             result = run_ost(dict(path="model.cif"), dict(path="reference.cif"))

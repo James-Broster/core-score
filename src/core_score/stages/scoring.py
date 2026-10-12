@@ -1,8 +1,7 @@
 """Build each ensemble matrix, calculate CORE, and export score summaries."""
 
 from pathlib import Path
-from core_score.stages.utils.score_utils import core_score
-from core_score.stages.utils.matrix import build_matrix
+from core_score.stages.utils.score_utils import build_matrix, core_score
 from core_score.results import diagnostic, write_json, write_csv
 
 

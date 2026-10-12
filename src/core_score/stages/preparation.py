@@ -1,7 +1,7 @@
 """Orchestrate structure/chemistry preparation for each input ensemble."""
 
 from pathlib import Path
-from core_score.stages.utils.prepare_utils import prepare_pose
+from core_score.stages.utils.preparation.prepare import prepare_pose
 from core_score.results import diagnostic, fingerprint, write_json
 
 

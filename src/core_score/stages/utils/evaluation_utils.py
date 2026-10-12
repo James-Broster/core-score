@@ -3,8 +3,8 @@
 from pathlib import Path
 import numpy as np
 from core_score.stages.utils.comparison_utils import probe_prepared
-from core_score.stages.utils.prepare_utils import prepare_pose
-from core_score.results import diagnostic, fingerprint, write_csv
+from core_score.stages.utils.preparation.prepare import prepare_pose
+from core_score.results import diagnostic, fingerprint
 
 
 def prepare_reference_tasks(groups, output, *, ost="ost", chemlib=None, timeout=None):
@@ -83,38 +83,3 @@ def label_reference_results(records, thresholds):
                 )
             )
     return labels
-
-
-def summarize_reference(scores, labels, output):
-    """Descriptive evaluation only; never fit a CORE cutoff on these same observations."""
-    summaries = []
-    for score in scores:
-        if score["status"] != "complete":
-            continue
-        for threshold in sorted({r["threshold_angstrom"] for r in labels}):
-            matching = {
-                r["pose_id"]: r["success"]
-                for r in labels
-                if r["ensemble"] == score["ensemble"]
-                and r["threshold_angstrom"] == threshold
-            }
-            members = score["group_pose_ids"]
-            known = [matching.get(p) for p in members]
-            complete = all(v is not None for v in known)
-            summaries.append(
-                dict(
-                    ensemble=score["ensemble"],
-                    site=score["site"],
-                    core_score=score["S"],
-                    threshold_angstrom=threshold,
-                    inequality="rmsd < threshold",
-                    winning_group_size=len(members),
-                    evaluated_members=sum(v is not None for v in known),
-                    winning_group_success_fraction=(
-                        sum(known) / len(known) if complete and known else None
-                    ),
-                    note="Reference assignment is OST-native; multicopy labels describe whole poses, not site-specific correctness",
-                )
-            )
-    write_csv(Path(output) / "reference_summary.csv", summaries)
-    return summaries

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from core_score.stages.utils.site_algorithms import assign_sites
+from core_score.stages.utils.sites import assign_sites
 
 
 def test_site_assignment_does_not_accept_nonconvergence():

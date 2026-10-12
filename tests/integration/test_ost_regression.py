@@ -11,8 +11,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_score.stages.utils.prepare_utils import prepare_pose
-from core_score.stages.utils.comparison_utils import run_ost, summarize
+from core_score.stages.utils.preparation.prepare import prepare_pose
+from core_score.stages.utils.comparison_utils import summarize
+from core_score.stages.utils.ost import run_ost
 
 
 def run(groups, output, workers, options):

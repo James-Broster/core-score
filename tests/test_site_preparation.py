@@ -38,7 +38,7 @@ ATOM 1 C CA A 0 0 0
     groups = [dict(ensemble='target', poses=poses)]
     original_groups = deepcopy(groups)
     fit = SimpleNamespace(transform=np.eye(4), rmsd=0, chain_mapping={})
-    with patch('core_score.stages.utils.sites_utils.rigid_transform', return_value=fit) as align:
+    with patch('core_score.stages.utils.sites.rigid_transform', return_value=fit) as align:
         sites = prepare_site_groups(groups, tmp_path / 'out')
     assert align.call_count == 1
     assert len(sites) == 2
@@ -61,7 +61,7 @@ ATOM 1 C CA A 0 0 0
 
 def test_single_copy_does_not_align(tmp_path):
     groups = [dict(ensemble='target', poses=[dict(prepared=dict(copies=1))])]
-    with patch('core_score.stages.utils.sites_utils.rigid_transform') as align:
+    with patch('core_score.stages.utils.sites.rigid_transform') as align:
         result = prepare_site_groups(groups, tmp_path)
     align.assert_not_called()
     assert result[0]['site'] == '1'

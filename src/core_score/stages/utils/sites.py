@@ -1,94 +1,67 @@
-"""OST rigid superposition and the historical k-means/Hungarian site assignment."""
+"""Give each ligand copy a site label that is consistent across an ensemble."""
 
 import dataclasses
-import json
-import subprocess
-import tempfile
 from pathlib import Path
-
 import numpy as np
 from scipy.cluster.vq import kmeans2
 from scipy.optimize import linear_sum_assignment
+from core_score.stages.utils.preparation.cif import read_document, filter_records
+from core_score.stages.utils.ost import rigid_transform
 
 
-class RigidSuperpositionError(RuntimeError):
-    """Raised when `ost compare-structures --rigid-scores` cannot superpose two poses."""
-
-    def __init__(self, message, evidence=None):
-        super().__init__(message)
-        self.evidence = evidence or {}
-
-
-@dataclasses.dataclass(frozen=True)
-class RigidResult:
-    transform: (
-        np.ndarray
-    )  # (4, 4) homogeneous transform: superposes `model` onto `reference`
-    rmsd: float  # protein backbone RMSD after superposition (informational)
-    chain_mapping: dict  # OST's own reference-chain -> model-chain mapping
-
-
-def rigid_transform(
-    ost_bin: str, model_cif: Path, reference_cif: Path, timeout: float | None = None
-) -> RigidResult:
-    """Superpose `model_cif` onto `reference_cif` using OST's own rigid Kabsch superposition
-    of matched protein C-alpha atoms (`ost compare-structures --rigid-scores`).
-
-    Raises RigidSuperpositionError on any failure (process error, non-SUCCESS status, or a
-    missing transform) rather than returning a sentinel -- callers must handle this
-    explicitly, not have it silently absorbed.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        out_json = f"{tmp}/rigid.json"
-        cmd = [
-            ost_bin,
-            "compare-structures",
-            "-m",
-            str(model_cif),
-            "-r",
-            str(reference_cif),
-            "--rigid-scores",
-            "-o",
-            out_json,
-        ]
-        evidence = dict(
-            command=cmd,
-            timeout=timeout,
-            model=str(model_cif),
-            reference=str(reference_cif),
-        )
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            raise RigidSuperpositionError(
-                f"ost compare-structures timed out after {timeout}s", evidence
-            ) from exc
-        evidence.update(
-            returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr
-        )
-        if proc.returncode != 0:
-            raise RigidSuperpositionError(
-                proc.stderr.strip()
-                or proc.stdout.strip()
-                or f"exit code {proc.returncode}",
-                evidence,
+def align_copy_centres(poses, copies, ost, timeout):
+    anchor = poses[0]
+    points, transforms = {}, {}
+    for pose in poses:
+        prepared = pose["prepared"]
+        if len(prepared["copy_records"]) != copies:
+            raise ValueError("Missing copy coordinates for site correspondence")
+        if pose is anchor:
+            transform = np.eye(4)
+        else:
+            fit = rigid_transform(
+                ost,
+                Path(prepared["path"]),
+                Path(anchor["prepared"]["path"]),
+                timeout,
             )
-        data = json.loads(Path(out_json).read_text())
-        if data.get("status") != "SUCCESS":
-            raise RigidSuperpositionError(
-                f"OST status={data.get('status')}", dict(evidence, ost_results=data)
+            transform = fit.transform
+            transforms[pose["pose_id"]] = dict(
+                rmsd=fit.rmsd,
+                chain_mapping=fit.chain_mapping,
+                transform=transform,
             )
-        transform = data.get("transform")
-        if transform is None:
-            raise RigidSuperpositionError(
-                "OST returned no transform (chains likely could not be mapped)",
-                dict(evidence, ost_results=data),
-            )
-        return RigidResult(
-            transform=np.asarray(transform, dtype=float),
-            rmsd=data.get("rmsd"),
-            chain_mapping=data.get("chain_mapping") or {},
+        coordinates = apply_transform(
+            [c["centre"] for c in prepared["copy_records"]], transform
         )
+        points[pose["pose_id"]] = {
+            c["copy_id"]: xyz
+            for c, xyz in zip(prepared["copy_records"], coordinates)
+        }
+    return points, transforms
+
+
+def prepare_site_pose(pose, copy, destination):
+    prepared = pose["prepared"]
+    if copy.get("residue"):
+        filter_records(
+            read_document(prepared["path"]), {tuple(copy["residue"])}, destination
+        )
+        site_prepared = dict(
+            prepared,
+            path=str(destination.resolve()),
+            copies=1,
+            ligand_sdfs=[],
+            copy_records=[copy],
+        )
+    else:
+        site_prepared = dict(
+            prepared,
+            copies=1,
+            ligand_sdfs=[copy["ost_sdf"]],
+            copy_records=[copy],
+        )
+    return dict(pose, prepared=site_prepared)
 
 
 def apply_transform(coords: np.ndarray, transform: np.ndarray) -> np.ndarray:

@@ -1,6 +1,5 @@
 """Separate OST connectivity SDFs from chemically validated PoseBusters inputs."""
 
-from pathlib import Path
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds

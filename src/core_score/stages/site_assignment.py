@@ -1,8 +1,7 @@
 """Prepare consistent ligand-site inputs; preserve predicted atomic coordinates."""
 
 from pathlib import Path
-from core_score.stages.utils.site_algorithms import assign_sites
-from core_score.stages.utils.sites_utils import align_copy_centres, prepare_site_pose
+from core_score.stages.utils.sites import align_copy_centres, assign_sites, prepare_site_pose
 from core_score.results import diagnostic, fingerprint, write_json
 
 

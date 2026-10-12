@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from core_score.stages.scoring import core_score
-from core_score.stages.utils.matrix import build_matrix
+from core_score.stages.utils.score_utils import build_matrix
 from core_score.cli import parser, main
 from core_score.stages.utils.posebusters_utils import aggregate, load_results
 from core_score.stages.posebusters import run_pb
