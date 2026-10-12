@@ -1,82 +1,63 @@
 # CORE Score
 
-A portable Python package for prediction-only ensemble agreement. It prepares
-protein–ligand structures, runs PoseBusters `dock` checks and excludes invalid poses, compares predictions
-with OpenStructure, and calculates CORE from a complete pairwise ligand-RMSD
-matrix. Experimental references are optional and never enter the CORE calculation.
+A Python package for prediction-only ensemble agreement. It prepares protein–ligand
+structures, runs PoseBusters `dock` checks, compares every pair of poses with
+OpenStructure, and calculates CORE from the complete pairwise ligand-RMSD matrix.
+Experimental references are optional and never enter the CORE calculation.
 
-This is the first refactored implementation. See [validation](docs/validation.md)
-for what has actually been checked and remaining historical regression coverage.
+See [validation](docs/validation.md) for what has been checked.
+
+## CORE Score
+
+For each pose *i* in an ensemble of *N* poses, δ*ᵢ* is the ligand RMSD to its closest
+other pose. Each distance is capped at a threshold *T* and divided by *T*, so a pose
+reproduced exactly has penalty 0 and a pose with no other pose within *T* has
+penalty 1. CORE is one minus the mean penalty.
+
+```text
+S = 1 − (1/N) Σᵢ min(δᵢ, T) / T
+```
+
+Equivalently S = f (1 − ν/T), where f is the fraction of poses with another pose
+within T and ν is their mean closest-pose distance. The default T is 2 Å, the RMSD
+threshold for a correct prediction. CORE uses every pose in the ensemble, including
+poses that fail PoseBusters checks, because they still sample the model's output
+distribution. Validity filtering belongs downstream, for example when choosing the
+top-ranked prediction.
+
+`core_score(matrix, threshold=2.0)` is importable from `core_score` for matrices
+computed elsewhere.
 
 ## Install
-
-From the project directory, an environment recipe is provided:
 
 ```bash
 conda env create -f environment.yml
 conda activate core-score
 ```
 
-Its conda dependency solve has been checked on macOS ARM; other platforms still
-require an available OpenStructure build. The package itself has no scheduler or
-machine-specific paths. Alternatively:
-
-Activate an environment containing **OpenStructure 2.12**, then install:
+The conda solve has been checked on macOS ARM. Other platforms need an available
+OpenStructure 2.12 build. Alternatively, activate an environment containing
+**OpenStructure 2.12** and install with pip.
 
 ```bash
 python -m pip install -e '.[plots,test]'
 core-score --help
 ```
 
-The Python dependencies include PoseBusters **0.4.4**, preserving the production
-version used for the existing analysis. OpenStructure is an external executable,
-not installed by pip. `ost` is launched through PATH. OST discovers its own chemical library from
-its installation or `OST_COMPOUNDS_CHEMLIB`; the pipeline does not run a separate
-installation preflight. There are no Oxford paths or Slurm rules.
-Custom installations can use advanced `--ost-bin` / `--chemlib` overrides.
-The optional protein-superposition Python API requires OST Python bindings;
-the default workflow calls OST through its executable.
+PoseBusters is pinned at **0.4.4**, the version used for the existing analysis.
+OpenStructure is an external executable. `ost` is launched from PATH and finds its
+chemical library itself or through `OST_COMPOUNDS_CHEMLIB`.
 
-## Start with files
+## Inputs
 
 ```bash
 core-score inputs.json --out results/ --workers 8 --plots
 core-score poses/*.cif --smiles 'CCO' --out results/
 ```
 
-PDB, CIF and mmCIF are accepted. Each file must contain one structural model.
-Use an original coordinate-bearing ligand SDF with `--ligand-sdf ligand.sdf`
-when the receptor and ligand are supplied separately. It must be in the receptor's
-coordinate frame; we do not align it silently. SMILES describe the **actual**
-intended ligand; `CCO` above is an illustrative ethanol input, not a universal default.
-
-When a structure has exactly one nonpolymer ligand residue it can be selected
-automatically. Otherwise supply `--ligand-chain` (repeat for identical copies),
-optionally `--ligand-residue`, or SMILES to select matching heavy-atom composition.
-Composition is only a selection aid; PB preparation separately verifies chemistry.
-Ambiguities and missing ligands are reported, not guessed away.
-
-The CLI requires the intended ligand SMILES for each prediction, supplied in JSON
-or with `--smiles`. It checks this before preparation. Native chemical information
-and original SDFs remain useful during preparation. Missing chemical information is **unknown**, not
-a PB pass. Coordinate-derived connectivity is preserved as a separate OST fallback;
-it is not treated as a chemically authoritative PB molecule.
-
-Input validation runs automatically: input loading checks structure paths and ligand
-SMILES, preparation checks structure readability and ligand selection, and the
-pipeline launches OST when comparisons are needed, recording execution failures. Reference files are required
-only for requested reference evaluation. CORE needs at least two retained poses.
-
-## JSON inputs
-
-```bash
-core-score inputs.json --out results/
-```
-
-JSON is the input manifest format. Each ensemble contains predictions of the same
-protein–ligand system to compare together. Files can live in separate directories;
-ensemble membership is explicit, not inferred from their locations. Keep different
-methods in separate ensembles when you want separate scores for them.
+A JSON manifest can hold many ensembles. Structure files given directly form one
+ensemble. PDB, CIF and mmCIF are accepted, each with one structural model. Every
+prediction needs the SMILES of its intended ligand (`CCO` here is only an example).
 
 ```json
 {
@@ -94,169 +75,141 @@ methods in separate ensembles when you want separate scores for them.
 }
 ```
 
-Paths are relative to the JSON file; absolute paths also work. Shared `smiles`,
-`ligand_chains` and `ligand_residue` can be set once per ensemble; individual poses
-can override them. Supply `smiles` for the intended ligand; chain and residue selectors are optional.
-`CCO` is an illustrative ligand, not a default. Pose IDs may be omitted and are then
-generated from list order. Optional pose fields include `seed`, `sample`, and
-`ligand_sdfs` (an array of original predicted SDF paths in the receptor coordinate
-frame). An SDF is not required if reliable chemistry can be obtained otherwise.
+Each ensemble contains predictions of the same protein–ligand system to compare
+together. Keep different methods in separate ensembles to score them separately.
+Ensemble names must be unique. Paths are relative to the JSON file. `smiles`,
+`ligand_chains` and `ligand_residue` can be set once per ensemble and overridden per
+pose. Pose IDs default to list order. Optional pose fields are `seed`, `sample` and
+`ligand_sdfs`, a list of original predicted SDFs in the receptor's coordinate frame
+for structures whose ligand is supplied separately. Coordinates are never aligned or
+changed.
 
-An optional ensemble-level `reference` object has its own `path`, ligand selection
-and chemistry; see [the reference example](examples/manifest-with-reference.json).
-It is evaluated only when requested with `--evaluate-reference`.
+A structure with exactly one nonpolymer ligand residue is selected automatically.
+Otherwise the SMILES heavy-atom composition, `ligand_chains` (or `--ligand-chain`,
+repeated for identical copies) and `ligand_residue` select it. Ambiguous or missing
+ligands are reported, not guessed. Composition only selects residues. Preparation
+separately verifies the chemistry against the SMILES.
 
-See [the input example](examples/manifest.json). This is a **CORE Score manifest**
-pointing at generated structures, not an automatic importer for a prediction
-model's own input JSON schema. Direct structure paths remain available for one
-ensemble. CSV input manifests are no longer supported; result tables and the advanced
-PB-results CSV interface remain available.
+Poses are ordered by `(seed, sample, pose_id)`. The first is the anchor for site
+assignment, and in each pair the earlier pose is OST's model.
 
-Existing single-ensemble and ensemble-list `cofold-ost` JSON remains readable.
-The pipeline writes `prepared_manifest.json` recording prepared structures.
-Prepared files must remain available at the recorded paths; move the whole result
-only with path updates.
+See [the input example](examples/manifest.json). This is a CORE Score manifest of
+generated structures, not an importer for a prediction model's own input JSON.
 
-## Defaults and controls
+## Options
 
 | Option | Meaning |
 | --- | --- |
-| `--workers N` | At most N simultaneous local pair comparisons, default 1. Each OST subprocess caps numerical-library threads at one. Not CPUs per comparison. |
-| `--timeout SECONDS` | Optional limit per OST invocation. Default is **no timeout**. |
-| `--no-radius-fallback` | Disable the default eligible 4 → 6 → 8 Å binding-site recovery. |
-| `--skip-posebusters` | Skip both PB checking and filtering; retain all input poses. |
-| `--pb-results FILE` | Advanced override using existing PB results; otherwise PB runs automatically. |
-| `--evaluate-reference` | Also evaluate against explicitly supplied reference structures. |
-| `--rmsd-thresholds 0.5 1 1.5 2` | Reference success labels use **RMSD < threshold**, in Å. Default 2. Does not change CORE. |
-| `--plots` | Export optional heatmaps and, when available, a reference-evaluation plot. |
+| `--workers N` | At most N simultaneous OST comparisons (default 1). Each OST process uses one numerical-library thread. |
+| `--timeout SECONDS` | Limit per OST call. Default is no limit. |
+| `--rmsd-thresholds 0.5 1 2` | Thresholds T in Å. CORE is calculated at each from the same matrix, and reference success means RMSD < T. Default 2. |
+| `--no-radius-fallback` | Disable the 4 → 6 → 8 Å binding-site recovery. |
+| `--skip-posebusters` | Do not run PoseBusters. CORE is unaffected. |
+| `--evaluate-reference` | Also compare predictions with supplied reference structures. |
+| `--reference FILE` | Reference for structure files given directly (JSON sets its own). |
+| `--plots` | Save heatmaps and, with references, a summary plot. |
 
-Recovery radii are fixed at 6 then 8 Å after the initial 4 Å attempt. Only recognized binding-site
-failure reasons are eligible. Graph errors and general process failures are not
-fixed by enlarging the pocket. Fallback operates on one assigned copy/site at a
-time. Pocket/RMSD results can come from recovery, but **lDDT-PLI stays from the
-original 4 Å call**. All attempts, original RMSD and chosen radius remain recorded.
+## PoseBusters
 
-By default, PB runs once per selected ligand copy against its predicted environment
-and invalid poses are excluded before comparisons and CORE. Use
-`--skip-posebusters` to skip both checking and filtering. There is no check-and-retain
-CLI mode. All
-configured `dock` binary checks determine `pb_valid`. A separate
-`pb_valid_13_checks` retains the historical paper's 13-check summary; these are
-different definitions. Every raw check is exported. A pose fails if any copy
-fails; if none fail but any are unknown, the pose is unknown. Default PB filtering
-blocks that ensemble when status is unknown rather than silently treating it as
-valid. Exclusions and original/retained ensemble sizes are saved.
+PoseBusters runs once per selected ligand copy against its predicted environment,
+using the official API with `config='dock'`. A pose is valid only if every copy passes
+every dock binary check. If none fail but any are unknown, the pose is unknown,
+never valid. Missing chemical information is unknown, not a pass. Results are saved
+in `posebusters.json` (every raw check) and `posebusters.csv` (one row per pose).
+No pose is removed.
 
-The wrapper uses the official [PoseBusters Python API](https://posebusters.readthedocs.io/en/latest/api.html)
-with `config='dock'` and full reports.
+## Binding-site recovery
 
-Supplied PB CSVs require unique `(ensemble, pose_id)` rows, `config=dock` and
-`pb_valid` (`True`, `False`, blank for unknown). `posebusters.csv` from this package
-can be reused. Supplied labels are user-provided evidence, not revalidated chemistry.
+When OST cannot score a pair because of a binding-site failure, the comparison is
+retried at 6 Å and then 8 Å. Graph errors and general failures are not retried. The
+ligand and pocket RMSD can come from the larger radius, but lDDT-PLI always stays
+from the original 4 Å call. The standard RMSD, chosen radius and every attempt are
+recorded.
 
 ## Multiple identical copies
 
-The default workflow uses the historical production approach: choose the earliest
-`(seed, sample, pose_id)` prediction as an anchor, use OST protein rigid alignment,
-then constrained centroid assignment to give each copy a consistent site label.
-Each site gets its own pairwise matrix and CORE score. Confidence and ground truth
-are not used. Copy-count mismatches or alignment failures block the ensemble and
-are reported. Site labels are arbitrary and do not prove biological correspondence.
-The assignment costs, transforms and anchor are exported in `sites.json`.
+When each prediction contains several copies of the ligand, every pose is superposed
+onto the anchor pose by OST's rigid protein alignment. Constrained k-means then gives
+each copy a site label consistent across the ensemble, and each site gets its own
+matrix and CORE Score. Confidence and ground truth are not used. Different copy
+counts or alignment failures block the ensemble and are reported. Site labels are
+arbitrary and do not prove biological correspondence. Transforms, costs and the
+anchor are saved in `sites.json`.
 
-The lower-level site utilities and their tests are retained. The historical
-site-assignment policy has not been replaced with the experimental multistart
-policy. There is no `--site-mode` flag.
-
-## Optional reference evaluation
+## Reference evaluation
 
 ```bash
-core-score inputs-with-references.json --out results/ \
-  --evaluate-reference --rmsd-thresholds 0.5 1 1.5 2 --plots
-
-core-score inputs.json --out evaluation/ --evaluate-reference \
-  --reference experimental.cif
+core-score inputs.json --out results/ --evaluate-reference --rmsd-thresholds 0.5 1 1.5 2
+core-score poses/*.cif --smiles 'CCO' --out results/ --evaluate-reference --reference experimental.cif
 ```
 
-Reference selections are separate from prediction selections. Ground-truth paths
-are checked only when reference evaluation is requested; missing requested
-references are errors before preparation. Unused reference paths do not block a
-normal CORE run. Reference comparisons use OST's ligand RMSD and preserve
-the same diagnostics. Threshold sweeps reuse each computed RMSD. Multiple assigned
-reference copies have no scalar correctness label unless OST assigns exactly one
-pair; site-specific ground-truth correspondence is not inferred from arbitrary site
-numbers. `reference_summary.csv` is descriptive evidence, not a trained calibration
-or a promise that a given CORE cutoff achieves a particular accuracy.
+A JSON ensemble can carry a `reference` path or object with its own ligand selection
+and chemistry (see [the reference example](examples/manifest-with-reference.json)).
+References are loaded and checked only when `--evaluate-reference` is given. Each
+prediction is compared with the reference using OST's ligand RMSD. A multi-copy
+comparison has no single success label unless OST assigns exactly one pair.
+`reference_summary.csv` places each ensemble's CORE Score beside the fraction of its
+poses within the same threshold. It is descriptive, not a calibration.
 
-## Running the workflow
+## Running
 
-Use `core-score inputs.json --out results/ --plots`. JSON is the primary input;
-direct structure paths with `--smiles` remain available for one ensemble.
-There are no stage subcommands. Every run loads and validates inputs, prepares
-structures, applies the PB policy, assigns sites where needed, compares all retained
-pairs, validates matrices, and calculates CORE. Requested reference evaluation is
-part of that same run. Requested plots are generated last.
-Use `core-score --help` for workflow options.
+Every run loads and checks the inputs, prepares structures, runs PoseBusters, assigns
+sites where needed, compares every pair, and calculates CORE, then evaluates
+references and draws plots when requested. Each run is fresh and needs a new or empty
+output directory. A missing or failed comparison prevents that ensemble's CORE
+Score. Nothing is averaged over a subset or filled in. Other ensembles carry on, and
+their results and diagnostics are saved. The exit code is 0 when everything
+completed, 1 when anything is incomplete and 2 for invalid input.
 
-Use `--workers N` to run up to N pair comparisons simultaneously within one run.
-The pipeline schedules every required pair and collects the results automatically.
-Each invocation is a fresh run. Use a new or empty output directory; interrupted
-runs must be started again. No checkpoint files are created or reused.
-There is no pair-subset input or separate result-merging command.
+## Outputs
 
-Duplicate, missing, failed or incompatible comparisons prevent CORE calculation.
-There is no averaging over successful subsets and no zero-filling failures. The
-package never submits a cluster job. Independent ensembles keep running after a
-local scientific failure; their results and diagnostics are included in the output.
+| File | Contents |
+| --- | --- |
+| `scores.csv`, `scores.json` | CORE Score per ensemble, site and threshold, or the reason it is missing |
+| `pairs.csv` | Ligand RMSD, pocket backbone RMSD, pocket lDDT and lDDT-PLI per pair, with radius recovery fields |
+| `ligand_details.jsonl` | Raw OST results, commands and output for every pair |
+| `posebusters.csv`, `posebusters.json` | Dock check results per pose and copy |
+| `prepared_manifest.json`, `prepared/` | Prepared structures, SDFs and receptors |
+| `sites.json` | Site assignments for multi-copy ensembles |
+| `reference_evaluation.csv`, `reference_summary.csv`, `reference_details.json` | Reference results, when requested |
+| `run.json`, `status.json` | Settings and completion counts |
 
-## Outputs and code layout
+Every failure records its stage, error and traceback, plus any evidence such as the
+OST command and output.
 
-`pairs.csv` contains ligand RMSD, pocket backbone RMSD, pocket lDDT, lDDT-PLI and
-fallback metadata. `ligand_details.jsonl` retains raw OST results, commands,
-stdout/stderr, inputs and attempts. `scores.json/csv` gives CORE and winning-group
-pose IDs; `posebusters.json/csv` retains PB checks. Input preparation, site mapping,
-run settings and status are separately recorded. Errors identify the stage and
-known next action; unknown exceptions retain their original evidence.
+## Code layout
 
-The reading order is `cli.py → pipeline.execute() → stages/<stage>.py → stages/utils/`.
-The pipeline shows the complete workflow. Each stage shows its own sequence of work;
-its helpers contain the implementation details. Preparation-specific chemistry and
-file handling are grouped together inside the stage helpers. JSON input loading
-and shared result-writing helpers stay at the package root.
+Reading order is `cli.py → pipeline.execute() → stages/<stage>.py → stages/utils/`.
+Stages run the steps and write results. Utils compute.
 
 ```text
 src/core_score/
-  cli.py                      parse the user's command
-  inputs.py                   load JSON and validate required input fields
-  pipeline.py                 orchestrate the complete run
-  results.py                  shared output and diagnostic helpers
+  cli.py                      parse the command
+  inputs.py                   load and check JSON or structure inputs
+  pipeline.py                 run the stages in order
+  results.py                  output writers and diagnostics
   stages/
     preparation.py            prepare structures and ligand chemistry
-    site_assignment.py        establish consistent ligand sites when needed
-    posebusters.py            check → filter → save
-    comparison.py             prepare pairs → run workers → save
-    scoring.py                matrix → CORE → score export
-    evaluation.py             reference comparisons → threshold labels → save
-    plotting.py               generate figures from saved results
+    posebusters.py            dock checks for every pose
+    site_assignment.py        split multi-copy ensembles by site
+    comparison.py             compare every pair
+    scoring.py                matrix and CORE per threshold
+    evaluation.py             optional reference comparison
+    plotting.py               figures from saved results
     utils/
-      prepare_utils.py        prepare an individual structure and ligand
-      sites_utils.py          align centres and select/write ligand copies
-      site_algorithms.py      protein alignment and site-assignment algorithms
-      posebusters_utils.py    dock calls, copy results and validity handling
-      comparison_utils.py     OST calls, probes, tasks and diagnostics
-      matrix.py               complete-matrix validation
-      radius.py               established binding-site recovery
-      score_utils.py          clustering and CORE mathematics
-      evaluation_utils.py     reference preparation, thresholds and summaries
+      ost.py                  every OpenStructure call
       preparation/
+        prepare.py            prepare one structure
         chemistry.py          ligand selection and chemical identity
-        cif.py                read/filter structural records
-        sdf.py                coordinate-preserving ligand representations
+        cif.py                read and filter structure records
+        sdf.py                coordinate-preserving ligand molecules
+      posebusters_utils.py    dock checks and validity
+      sites.py                protein superposition and site assignment
+      comparison_utils.py     pair tasks and OST score summaries
+      radius.py               binding-site recovery
+      score_utils.py          RMSD matrix and CORE
+      evaluation_utils.py     reference labels and summary
 ```
-
-
-No legacy runtime imports, cluster launchers, generated egg metadata or historical
-logs are required. The original Downloads copy is retained outside this package.
 
 ## Tests
 
@@ -264,6 +217,5 @@ logs are required. The original Downloads copy is retained outside this package.
 python -m pytest
 ```
 
-Real OST regression tests are explicitly separate because they need OST and
-structure fixtures. See [validation](docs/validation.md). Missing requested
-integration fixtures cause an error; we do not silently skip that validation.
+Real OST tests are separate because they need OST and structure fixtures. See
+[validation](docs/validation.md).
