@@ -37,7 +37,7 @@ OpenStructure 2.12 build. Alternatively, activate an environment containing
 **OpenStructure 2.12** and install with pip.
 
 ```bash
-python -m pip install -e '.[plots,test]'
+python -m pip install -e '.[test]'
 core-score --help
 ```
 
@@ -48,7 +48,7 @@ chemical library itself or through `OST_COMPOUNDS_CHEMLIB`.
 ## Inputs
 
 ```bash
-core-score inputs.json --out results/ --workers 8 --plots
+core-score inputs.json --out results/ --workers 8
 core-score poses/*.cif --smiles 'CCO' --out results/
 ```
 
@@ -57,7 +57,7 @@ The same run from Python:
 ```python
 import core_score
 
-core_score.run("inputs.json", "results/", workers=8, plots=True)
+core_score.run("inputs.json", "results/", workers=8)
 ```
 
 `core_score.core_score(matrix, threshold=2.0)` scores a pairwise RMSD matrix you have
@@ -113,21 +113,19 @@ generated structures, not an importer for a prediction model's own input JSON.
 | `--workers N` | At most N simultaneous OST comparisons (default 1). Each OST process uses one numerical-library thread. |
 | `--timeout SECONDS` | Limit per OST call. Default is no limit. |
 | `--rmsd-thresholds 0.5 1 2` | Thresholds T in Å. CORE is calculated at each from the same matrix, and reference success means RMSD < T. Default 2. |
-| `--core-cutoffs 0.5 0.7 0.9` | CORE cutoffs for the decisions. At or above a cutoff counts as likely correct. Default 0.5, 0.6, 0.7, 0.8 and 0.9. |
+| `--core-cutoffs 0.5 0.7 0.9` | CORE cutoffs to report against. A complex at or above a cutoff is above it. Default 0.5, 0.6, 0.7, 0.8 and 0.9. |
 | `--no-radius-fallback` | Disable the 4 → 6 → 8 Å binding-site recovery. |
 | `--skip-posebusters` | Do not run PoseBusters. CORE is unaffected. |
 | `--evaluate-reference` | Also compare predictions with supplied reference structures. |
 | `--reference FILE` | Reference for structure files given directly (JSON sets its own). |
-| `--plots` | Save heatmaps and, with references, a summary plot. |
 
 ## PoseBusters
 
 PoseBusters runs once per selected ligand copy against its predicted environment,
 using the official API with `config='dock'`. A pose is valid only if every copy passes
 every dock binary check. If none fail but any are unknown, the pose is unknown,
-never valid. Missing chemical information is unknown, not a pass. Results are saved
-in `posebusters.json` (every raw check) and `posebusters.csv` (one row per pose).
-No pose is removed.
+never valid. Missing chemical information is unknown, not a pass. Each check's result
+for a pose combines its copies the same way. No pose is removed.
 
 ## Binding-site recovery
 
@@ -158,27 +156,22 @@ A JSON ensemble can carry a `reference` path or object with its own ligand selec
 and chemistry (see [the reference example](examples/manifest-with-reference.json)).
 References are loaded and checked only when `--evaluate-reference` is given. Each
 prediction is compared with the reference using OST's ligand RMSD. A multi-copy
-comparison has no single success label unless OST assigns exactly one pair.
-`reference_summary.csv` places each ensemble's CORE Score beside the fraction of its
-poses within the same threshold. It is descriptive, not a calibration.
+comparison has no single success label unless OST assigns exactly one pair. A pose is
+correct at T when its RMSD to the reference is below T. A failed comparison is
+unknown, never wrong.
 
-## Decisions
+## Top-ranked pose
 
-`decisions.csv` says, for every ensemble, site, T and cutoff, whether CORE judges the
-ensemble likely correct (CORE ≥ cutoff). When confidences are given, it also names the
-top-ranked pose, the PoseBusters-valid pose with the highest confidence, as in the paper.
-With reference evaluation it says whether that pose is correct. An ensemble with no
-valid pose, no confidences, or PoseBusters skipped has no top pose, and `note` says why.
-
-`cutoff_summary.csv` gives, per T and cutoff, how many scored ensembles CORE accepts
-(coverage) and, when top poses and references are both available, how many accepted
-top poses are correct (accuracy). Adding cutoff 0 gives the accept-everything baseline.
+When confidences are given, the top-ranked pose of each complex is its
+PoseBusters-valid pose with the highest confidence, as in the paper. Ties go to the
+earlier pose. A complex with no valid pose, no confidences, or PoseBusters skipped has
+no top pose, and `note` in `core_scores.csv` says why.
 
 ## Running
 
 Every run loads and checks the inputs, prepares structures, runs PoseBusters, assigns
 sites where needed, compares every pair, calculates CORE, evaluates references when
-requested, makes the decisions, and draws plots when requested. Each run is fresh and needs a new or empty
+requested, and writes the report. Each run is fresh and needs a new or empty
 output directory. A missing or failed comparison prevents that ensemble's CORE
 Score. Nothing is averaged over a subset or filled in. Other ensembles carry on, and
 their results and diagnostics are saved. The exit code is 0 when everything
@@ -186,16 +179,55 @@ completed, 1 when anything is incomplete and 2 for invalid input.
 
 ## Outputs
 
+A complex is one ensemble, or one ligand site of a multi-copy ensemble. The four files
+at the top are the results. Everything else is in `details/`.
+
+```text
+results/
+  core_scores.csv            CORE for every complex
+  cutoff_summary.csv         how many complexes are above and below each cutoff
+  posebusters.csv            PoseBusters validity for every pose
+  reference_evaluation.csv   every pose against its reference (--evaluate-reference)
+  details/
+```
+
+**`core_scores.csv`** has one row per complex and T, highest CORE first and unscored
+complexes last.
+
+| Column | Meaning |
+| --- | --- |
+| `ensemble`, `site` | The complex. `site` is 1 for a single ligand copy and `unresolved` if sites could not be assigned. |
+| `threshold_angstrom`, `core_score` | T and CORE at T. Blank when CORE could not be calculated. |
+| `above_0.5` … `above_0.9` | True when CORE ≥ that cutoff, one column per cutoff. |
+| `pose_count`, `valid_pose_count` | Poses in the complex and how many are PoseBusters-valid. |
+| `top_pose`, `top_pose_confidence` | The top-ranked pose, when confidences are given. |
+| `fraction_correct`, `top_pose_correct` | With references: the fraction of poses below T, and whether the top pose is. |
+| `note` | Why CORE or the top pose is missing. |
+
+**`cutoff_summary.csv`** has one row per T and cutoff: `complexes` scored, how many are
+`above` and `below`, and `fraction_above`. When there are top poses and references, it
+adds, for each side of the cutoff, how many top poses have a known result
+(`top_poses_known_above`), how many are correct (`top_poses_correct_above`) and the
+accuracy (`accuracy_above`), and the same for `below`. Adding cutoff 0 gives the
+accept-everything baseline.
+
+**`posebusters.csv`** has one row per pose: `pb_valid`, `failed_checks` by name, one
+column per dock check (True, False, or blank when unknown), and `error`.
+
+**`reference_evaluation.csv`** has one row per pose: ligand `rmsd` and `lddt_pli` to the
+reference, `rmsd_below_2A` (one column per T), `radius_fallback_used`, and `error`.
+RMSD and labels are blank when the comparison failed.
+
+**`details/`** holds the evidence behind those files.
+
 | File | Contents |
 | --- | --- |
-| `scores.csv`, `scores.json` | CORE Score per ensemble, site and threshold, or the reason it is missing |
-| `decisions.csv`, `cutoff_summary.csv` | Likely correct or not at each cutoff, the top-ranked pose, coverage and accuracy |
 | `pairs.csv` | Ligand RMSD, pocket backbone RMSD, pocket lDDT and lDDT-PLI per pair, with radius recovery fields |
 | `ligand_details.jsonl` | Raw OST results, commands and output for every pair |
-| `posebusters.csv`, `posebusters.json` | Dock check results per pose and copy |
+| `posebusters.json` | Every raw PoseBusters result per pose and copy |
+| `reference_details.json`, `references/` | Raw reference comparisons and prepared references |
 | `prepared_manifest.json`, `prepared/` | Prepared structures, SDFs and receptors |
 | `sites.json` | Site assignments for multi-copy ensembles |
-| `reference_evaluation.csv`, `reference_summary.csv`, `reference_details.json` | Reference results, when requested |
 | `run.json`, `status.json` | Settings and completion counts |
 
 Every failure records its stage, error and traceback, plus any evidence such as the
@@ -220,8 +252,7 @@ src/core_score/
     comparison.py         every pair, with binding-site recovery
     scoring.py            RMSD matrix and CORE per threshold
     evaluation.py         optional reference comparison
-    decisions.py          accepted ensembles and top poses per cutoff
-    plotting.py           figures from saved results
+    report.py             the result files: CORE, cutoffs, top poses
   structure/
     cif.py                read, filter and write structure records
     chemistry.py          ligand selection and chemical identity

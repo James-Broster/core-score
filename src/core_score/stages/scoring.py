@@ -1,11 +1,11 @@
-"""Build each site ensemble's RMSD matrix, calculate CORE at each threshold, and save the scores."""
+"""Build each site ensemble's RMSD matrix and calculate CORE at each threshold."""
 
 import itertools
 import numpy as np
-from core_score.results import diagnostic, write_csv, write_json
+from core_score.results import diagnostic
 
 
-def score_groups(groups, rows, output, thresholds=(2.0,)):
+def score_groups(groups, rows, thresholds=(2.0,)):
     """One score per site ensemble and threshold T. An ensemble with a missing or failed pair is not scored."""
     scores = []
     for group in groups:
@@ -23,8 +23,6 @@ def score_groups(groups, rows, output, thresholds=(2.0,)):
                  core_score=value, error=error["error"] if error else None)
             for threshold, value in values.items()
         ]
-    write_json(output / "scores.json", scores)
-    write_csv(output / "scores.csv", scores)
     return scores
 
 

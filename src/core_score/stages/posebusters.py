@@ -2,7 +2,7 @@
 choosing the top-ranked valid pose. CORE uses every pose whatever its result. Unknown never
 counts as a pass."""
 
-from core_score.results import clean, diagnostic, write_csv, write_json
+from core_score.results import clean, diagnostic, write_json
 
 
 def run_posebusters(groups, output):
@@ -12,7 +12,6 @@ def run_posebusters(groups, output):
     checks = dock_checks(buster)
     records = [check_pose(buster, checks, pose) for group in groups for pose in group["poses"]]
     write_json(output / "posebusters.json", records)
-    write_csv(output / "posebusters.csv", [summary_row(record) for record in records])
     return records
 
 
@@ -40,13 +39,16 @@ def aggregate(values):
 
 
 def check_pose(buster, checks, pose):
-    """A pose is valid only if every ligand copy passes every dock check."""
-    record = dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"], pb_valid=None)
+    """A pose is valid only if every ligand copy passes every dock check. Each check's result
+    for the pose combines its copies the same way."""
+    record = dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"], pb_valid=None,
+                  checks=dict.fromkeys(checks))
     if pose.get("error"):
-        return dict(record, error="Pose was not prepared; see prepared_manifest.json")
+        return dict(record, error="Pose was not prepared; see details/prepared_manifest.json")
     prepared = pose["prepared"]
     copies = [check_copy(buster, checks, copy, prepared["receptor"]) for copy in prepared["copy_records"]]
-    return dict(record, pb_valid=aggregate(copy["pb_valid"] for copy in copies), copies=copies)
+    combined = {name: aggregate(copy.get("checks", {}).get(name) for copy in copies) for name in checks}
+    return dict(record, pb_valid=aggregate(copy["pb_valid"] for copy in copies), checks=combined, copies=copies)
 
 
 def check_copy(buster, checks, copy, receptor):
@@ -59,22 +61,18 @@ def check_copy(buster, checks, copy, receptor):
         return dict(record, **diagnostic("posebusters", exc))
     tests = {normalized(k): clean(v) for k, v in report.iloc[0].items()}
     results = {name: tests.get(name) if isinstance(tests.get(name), bool) else None for name in checks}
-    return dict(
-        record,
-        pb_valid=aggregate(results.values()),
-        failed_checks=[name for name, passed in results.items() if passed is False],
-        unknown_checks=[name for name, passed in results.items() if passed is None],
-        tests=tests,
-    )
+    return dict(record, pb_valid=aggregate(results.values()), checks=results, tests=tests)
 
 
 def summary_row(record):
-    """One CSV row per pose: validity, every failed check, and the first error if any."""
+    """One row of posebusters.csv: validity, the failed checks by name, every check's result
+    (blank when unknown), and the first error if any."""
     copies = record.get("copies", [])
     return dict(
         ensemble=record["ensemble"],
         pose_id=record["pose_id"],
         pb_valid=record["pb_valid"],
-        failed_checks=sorted({name for copy in copies for name in copy.get("failed_checks", [])}),
+        failed_checks="; ".join(name for name, passed in record["checks"].items() if passed is False),
+        **record["checks"],
         error=record.get("error") or next((copy["error"] for copy in copies if copy.get("error")), None),
     )

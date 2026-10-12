@@ -8,7 +8,7 @@ before relying on it.
 
 What has been checked.
 
-- **63 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
+- **66 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
 - **Equivalence with 0.2.0.** Both versions were run on the same ensembles with a
   stand-in `ost` executable that computes ligand RMSD from coordinates. The ensembles
   covered single-copy and two-copy predictions, an OST-undetectable ligand, original
@@ -18,7 +18,9 @@ What has been checked.
   before the formula changed.
 - **New CORE values** were recomputed independently from `pairs.csv` with the
   paper's equations, and satisfy S = f (1 − ν/T).
-- Generated heatmaps and the reference plot were inspected visually.
+- **The result files** were checked the same way. Every CORE value, pair measurement,
+  PoseBusters result and reference label in them matches the run before they were
+  redesigned.
 
 The stand-in checks plumbing, not OST's scoring. The real-structure tests check that.
 

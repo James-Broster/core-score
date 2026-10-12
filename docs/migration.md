@@ -38,5 +38,5 @@ investigations and the reference-choice sensitivity experiments.
 - Site correspondence keeps the historical production algorithm. It does not prove
   biological site identity, so ambiguous or symmetric systems still need the saved
   mapping and costs inspected.
-- CORE never uses experimental-reference measurements. Reference summaries are
+- CORE never uses experimental-reference measurements. Reference results are
   evaluation outputs, not a calibration.

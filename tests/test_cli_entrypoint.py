@@ -15,9 +15,9 @@ def test_direct_structures(values):
 
 @pytest.mark.parametrize("name", ["poses.json", "poses.JSON"])
 def test_json_input(name):
-    args = parser().parse_args([name, "--out", "results", "--plots", "--skip-posebusters"])
+    args = parser().parse_args([name, "--out", "results", "--skip-posebusters"])
     assert args.inputs == [Path(name)]
-    assert args.plots and args.skip_posebusters
+    assert args.skip_posebusters
 
 
 @pytest.mark.parametrize("words", [[], ["--help"]])

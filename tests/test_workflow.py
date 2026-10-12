@@ -36,7 +36,7 @@ def test_scores_at_each_threshold_and_never_from_incomplete_matrices(tmp_path):
             for a, b, r in [("a", "b", 0.5), ("a", "c", 3.0), ("b", "c", 1.0)]]
     groups = [dict(ensemble="g", site="1", poses=poses), dict(ensemble="h", site="1", poses=poses),
               dict(ensemble="u", site="unresolved", poses=poses, error=dict(error="ValueError: no sites"))]
-    scores = score_groups(groups, rows, tmp_path, thresholds=(1.0, 2.0))
+    scores = score_groups(groups, rows, thresholds=(1.0, 2.0))
     assert [(s["ensemble"], s["threshold_angstrom"]) for s in scores] == [
         ("g", 1.0), ("g", 2.0), ("h", 1.0), ("h", 2.0), ("u", 1.0), ("u", 2.0)]
     assert scores[1]["core_score"] == pytest.approx(1 - (0.25 + 0.25 + 0.5) / 3)
@@ -113,6 +113,21 @@ def test_posebusters_records_every_pose(tmp_path):
     assert json.loads((tmp_path / "posebusters.json").read_text()) == answers
 
 
+def test_each_check_combines_the_copies_and_unknown_stays_blank():
+    from core_score.stages.posebusters import check_pose, summary_row
+
+    pose = dict(ensemble="g", pose_id="a", prepared=dict(receptor="r.pdb", copy_records=["c0", "c1"]))
+    copies = [dict(copy_id="0", pb_valid=False, checks=dict(bond_lengths=True, internal_energy=False)),
+              dict(copy_id="1", pb_valid=None, error="ValueError: x")]
+    with patch("core_score.stages.posebusters.check_copy", side_effect=copies):
+        record = check_pose(None, ["bond_lengths", "internal_energy"], pose)
+    assert record["pb_valid"] is False
+    assert summary_row(record) == dict(ensemble="g", pose_id="a", pb_valid=False, failed_checks="internal_energy",
+                                       bond_lengths=None, internal_energy=False, error="ValueError: x")
+    unprepared = check_pose(None, ["bond_lengths"], dict(ensemble="g", pose_id="b", error="bad input"))
+    assert summary_row(unprepared)["bond_lengths"] is None
+
+
 def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
     from core_score.pipeline import execute
 
@@ -132,7 +147,7 @@ def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
 
 
 def test_reference_threshold_boundary_is_strict(tmp_path):
-    from core_score.stages.evaluation import evaluate_groups
+    from core_score.stages.evaluation import correct_column, evaluate_groups
 
     pose = dict(ensemble="g", pose_id="p", path="pose.cif", prepared=dict(copies=1))
     reference = dict(ensemble="g", pose_id="reference", path="ref.cif")
@@ -141,42 +156,76 @@ def test_reference_threshold_boundary_is_strict(tmp_path):
     prepared_reference = dict(reference, prepared=dict(copies=1))
     with patch("core_score.stages.evaluation.prepare", return_value=prepared_reference), \
             patch("core_score.stages.comparison.pair_job", return_value=(row, {})) as compare:
-        labels = evaluate_groups([group], [], tmp_path, [0.5, 1.0, 1.5, 2.0])
+        labels = evaluate_groups([group], tmp_path, [0.5, 1.0, 1.5, 2.0])
     assert compare.call_count == 1
-    assert [r["success"] for r in labels] == [False, False, True, True]
+    assert len(labels) == 1  # one row per pose, one column per threshold
+    assert [labels[0][correct_column(t)] for t in (0.5, 1.0, 1.5, 2.0)] == [False, False, True, True]
+
+
+def test_failed_reference_comparison_is_unknown_not_wrong():
+    from core_score.stages.evaluation import label_reference_results
+
+    [label] = label_reference_results([dict(ensemble="g", pose_id="p", rmsd=0.5, error="ambiguous")], [2.0])
+    assert (label["rmsd"], label["rmsd_below_2A"], label["error"]) == (None, None, "ambiguous")
+    [label] = label_reference_results([dict(ensemble="g", pose_id="p", error=dict(error="ValueError: x"))], [2.0])
+    assert label["error"] == "ValueError: x"
 
 
 def test_top_pose_is_the_valid_pose_with_highest_confidence():
-    from core_score.stages.decisions import top_pose
+    from core_score.stages.report import top_pose
 
-    group = dict(poses=[dict(pose_id="a", confidence=0.9), dict(pose_id="b", confidence=0.7),
-                        dict(pose_id="c", confidence=0.7), dict(pose_id="d", confidence=0.95)])
-    validity = dict(a=False, b=True, c=True, d=None)
+    poses = [dict(ensemble="g", pose_id=p, confidence=c) for p, c in zip("abcd", (0.9, 0.7, 0.7, 0.95))]
+    group = dict(ensemble="g", poses=poses)
+    validity = {("g", "a"): False, ("g", "b"): True, ("g", "c"): True, ("g", "d"): None}
     assert top_pose(group, validity)[0]["pose_id"] == "b"  # a invalid, d unknown, b wins the tie
     assert top_pose(group, None) == (None, "PoseBusters was skipped")
-    assert top_pose(group, dict(a=False))[1] == "no PoseBusters-valid pose"
-    assert top_pose(dict(poses=[dict(pose_id="a")]), dict(a=True))[1] == "no confidences given"
+    assert top_pose(group, {("g", "a"): False})[1] == "no PoseBusters-valid pose"
+    assert top_pose(dict(poses=[dict(ensemble="g", pose_id="a")]), {("g", "a"): True})[1] == "no confidences given"
 
 
-def test_decisions_per_cutoff_and_summary():
-    from core_score.stages.decisions import decide, summarize_cutoffs
+def report_inputs():
+    groups = [dict(ensemble=e, poses=[dict(ensemble=e, pose_id=p, confidence=c) for p, c in poses])
+              for e, poses in (("h", [("a", 0.9)]), ("g", [("a", 0.8), ("b", 0.6)]), ("u", [("a", 0.9)]))]
+    scores = [dict(ensemble="h", site="1", pose_count=1, threshold_angstrom=2.0, core_score=0.6, error=None),
+              dict(ensemble="g", site="1", pose_count=2, threshold_angstrom=2.0, core_score=0.9, error=None),
+              dict(ensemble="u", site="unresolved", pose_count=1, threshold_angstrom=2.0, core_score=None,
+                   error="ValueError: x")]
+    validity = {("g", "a"): True, ("g", "b"): False, ("h", "a"): True, ("u", "a"): True}
+    labels = [dict(ensemble="g", pose_id="a", rmsd_below_2A=True),
+              dict(ensemble="g", pose_id="b", rmsd_below_2A=False),
+              dict(ensemble="h", pose_id="a", rmsd_below_2A=False)]
+    return groups, scores, validity, labels
 
-    groups = [dict(ensemble="g", poses=[dict(pose_id="a", confidence=0.8), dict(pose_id="b", confidence=0.6)]),
-              dict(ensemble="h", poses=[dict(pose_id="a", confidence=0.9)]),
-              dict(ensemble="u", poses=[dict(pose_id="a", confidence=0.9)])]
-    scores = [dict(ensemble="g", site="1", threshold_angstrom=2.0, core_score=0.9, error=None),
-              dict(ensemble="h", site="1", threshold_angstrom=2.0, core_score=0.6, error=None),
-              dict(ensemble="u", site="unresolved", threshold_angstrom=2.0, core_score=None, error="ValueError: x")]
-    validity = dict(g=dict(a=True, b=True), h=dict(a=True), u=dict(a=True))
-    labels = [dict(ensemble="g", pose_id="a", threshold_angstrom=2.0, success=True),
-              dict(ensemble="h", pose_id="a", threshold_angstrom=2.0, success=False)]
-    rows = decide(groups, scores, validity, labels, [0.5, 0.7])
-    assert [(r["ensemble"], r["core_cutoff"], r["likely_correct"]) for r in rows] == [
-        ("g", 0.5, True), ("g", 0.7, True), ("h", 0.5, True), ("h", 0.7, False), ("u", 0.5, None), ("u", 0.7, None)]
-    assert rows[0]["top_pose"] == "a" and rows[0]["top_pose_correct"] is True
-    summary = summarize_cutoffs(rows)
-    assert [(s["core_cutoff"], s["scored"], s["accepted"], s["accuracy"]) for s in summary] == [
-        (0.5, 2, 2, 0.5), (0.7, 2, 1, 1.0)]
+
+def test_core_table_has_one_row_per_complex_best_first():
+    from core_score.stages.report import core_table, summarize_cutoffs
+
+    groups, scores, validity, labels = report_inputs()
+    rows = core_table(groups, scores, validity, labels, [0.5, 0.7], ranked=True)
+    assert [(r["ensemble"], r["above_0.5"], r["above_0.7"]) for r in rows] == [
+        ("g", True, True), ("h", True, False), ("u", None, None)]
+    g = rows[0]
+    assert (g["valid_pose_count"], g["top_pose"], g["top_pose_correct"], g["fraction_correct"]) == (1, "a", True, 0.5)
+    assert rows[2]["note"] == "ValueError: x"
+    summary = summarize_cutoffs(rows, [0.5, 0.7], judged=True)
+    assert [(s["core_cutoff"], s["complexes"], s["above"], s["below"], s["accuracy_above"], s["accuracy_below"])
+            for s in summary] == [(0.5, 2, 2, 0, 0.5, None), (0.7, 2, 1, 1, 1.0, 0.0)]
+
+
+def test_report_files_only_have_the_columns_that_apply(tmp_path):
+    import csv
+    from core_score.stages.report import write_report
+
+    groups, scores, _, _ = report_inputs()
+    for group in groups:
+        for pose in group["poses"]:
+            del pose["confidence"]
+    write_report(groups, scores, None, [], tmp_path, cutoffs=(0.5,))
+    header = next(csv.reader((tmp_path / "core_scores.csv").open()))
+    assert header == ["ensemble", "site", "threshold_angstrom", "core_score", "above_0.5", "pose_count", "note"]
+    assert (tmp_path / "cutoff_summary.csv").exists()
+    assert not (tmp_path / "posebusters.csv").exists()
+    assert not (tmp_path / "reference_evaluation.csv").exists()
 
 
 def test_confidence_is_given_for_every_pose_or_none(tmp_path):

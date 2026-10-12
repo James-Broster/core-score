@@ -15,7 +15,7 @@ def prepare_site_groups(groups, output, *, timeout=None):
         try:
             failed = [pose["pose_id"] for pose in group["poses"] if pose.get("error")]
             if failed:
-                raise ValueError(f"Poses failed preparation: {failed}; see prepared_manifest.json")
+                raise ValueError(f"Poses failed preparation: {failed}; see details/prepared_manifest.json")
             counts = {pose["prepared"]["copies"] for pose in group["poses"]}
             if len(counts) != 1:
                 # Copies can only be matched to sites when every pose has the same number.

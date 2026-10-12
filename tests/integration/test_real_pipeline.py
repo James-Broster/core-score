@@ -70,13 +70,14 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
             workers=workers,
             skip_posebusters=True,
         )
-        scores = json.loads((tmp_path / str(workers) / "scores.json").read_text())
-        with (tmp_path / str(workers) / "pairs.csv").open() as handle:
+        with (tmp_path / str(workers) / "core_scores.csv").open() as handle:
+            scores = list(csv.DictReader(handle))
+        with (tmp_path / str(workers) / "details" / "pairs.csv").open() as handle:
             rows = list(csv.DictReader(handle))
         assert summary["score_count"] == 1
         assert summary["completed_comparisons"] == 1
         # Two poses: each one's closest other pose is the other, so CORE = 1 - RMSD / T.
-        assert scores[0]["core_score"] == pytest.approx(1 - expected["rmsd"] / 2)
+        assert float(scores[0]["core_score"]) == pytest.approx(1 - expected["rmsd"] / 2)
         for field, value in expected.items():
             assert (float(rows[0][field]) if isinstance(value, (int, float)) else rows[0][field]) == value
         outputs.append(rows)
@@ -86,10 +87,11 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
 def test_pb_records_invalid_real_poses_and_core_still_uses_them(tmp_path, monkeypatch):
     options(monkeypatch)
     summary = execute(groups(), tmp_path / "pb")
-    pb = json.loads((tmp_path / "pb/posebusters.json").read_text())
+    pb = json.loads((tmp_path / "pb/details/posebusters.json").read_text())
     assert len(pb) == 2
     assert all(p["pb_valid"] is False for p in pb)
-    scores = json.loads((tmp_path / "pb/scores.json").read_text())
+    with (tmp_path / "pb/core_scores.csv").open() as handle:
+        scores = list(csv.DictReader(handle))
     assert summary["comparison_count"] == 1
     assert summary["score_count"] == 1
     assert scores[0]["pose_count"] == 2

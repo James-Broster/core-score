@@ -1,4 +1,4 @@
-"""One command: load inputs, run the analysis, then optionally plot results."""
+"""One command: load inputs and run the analysis."""
 
 import argparse
 import math
@@ -32,7 +32,7 @@ def parser():
     p = argparse.ArgumentParser(
         prog="core-score",
         description="Prepare structures, run PoseBusters, compare poses and calculate CORE.",
-        epilog="Example: core-score inputs.json --out results/ --workers 4 --plots",
+        epilog="Example: core-score inputs.json --out results/ --workers 4",
     )
     p.add_argument("inputs", metavar="INPUT", nargs="+", type=Path,
                    help="JSON manifest, or structure files forming one ensemble")
@@ -51,11 +51,11 @@ def parser():
                    help="Also compare predictions against supplied ground truth")
     p.add_argument("--reference", type=Path, help="Ground-truth structure; may instead be set in JSON")
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
-                   help="Thresholds T in angstroms: CORE is calculated at each, and reference "
-                        "success means RMSD < T (default: 2)")
+                   help="Thresholds T in angstroms: CORE is calculated at each, and a pose is "
+                        "correct when its RMSD to the reference is below T (default: 2)")
     p.add_argument("--core-cutoffs", type=fraction, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9],
-                   help="CORE Scores at or above a cutoff count as likely correct (default: 0.5 to 0.9)")
-    p.add_argument("--plots", action="store_true", help="Generate plots after the analysis")
+                   help="CORE cutoffs: each complex is reported as above (CORE >= cutoff) or below "
+                        "each one (default: 0.5 to 0.9)")
     return p
 
 
@@ -76,7 +76,6 @@ def main(argv=None):
             skip_posebusters=args.skip_posebusters,
             thresholds=args.rmsd_thresholds,
             cutoffs=args.core_cutoffs,
-            plots=args.plots,
         )
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"core-score: {exc}", file=sys.stderr)
