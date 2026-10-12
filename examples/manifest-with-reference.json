@@ -1,0 +1,28 @@
+{
+  "ensembles": [
+    {
+      "ensemble": "target1_boltz",
+      "smiles": "CCO",
+      "ligand_chains": [
+        "B"
+      ],
+      "poses": [
+        {
+          "pose_id": "p0",
+          "path": "boltz/run_1/model.cif"
+        },
+        {
+          "pose_id": "p1",
+          "path": "boltz/run_2/model.cif"
+        }
+      ],
+      "reference": {
+        "path": "references/experimental.cif",
+        "ligand_chains": [
+          "L"
+        ],
+        "smiles": "CCO"
+      }
+    }
+  ]
+}

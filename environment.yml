@@ -1,0 +1,10 @@
+name: core-score
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - openstructure=2.12
+  - pip
+  - pip:
+      - -e .[plots,test]
