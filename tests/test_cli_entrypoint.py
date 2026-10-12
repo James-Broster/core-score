@@ -9,23 +9,15 @@ from core_score.cli import parser, main
 ])
 def test_direct_structures(values):
     args = parser().parse_args(values)
-    assert args.structures == [Path("p0.cif"), Path("p1.pdb")]
-    assert not hasattr(args, "command")
+    assert args.inputs == [Path("p0.cif"), Path("p1.pdb")]
     assert not args.skip_posebusters and args.workers == 1
 
 
 @pytest.mark.parametrize("name", ["poses.json", "poses.JSON"])
 def test_json_input(name):
-    args = parser().parse_args([name, "--out", "results", "--plots"])
-    assert args.structures == [Path(name)]
-    assert args.plots
-
-
-def test_explicit_manifest_and_pb_skip():
-    args = parser().parse_args([
-        "--manifest", "poses.json", "--out", "results", "--skip-posebusters"
-    ])
-    assert args.manifest == Path("poses.json") and args.skip_posebusters
+    args = parser().parse_args([name, "--out", "results", "--plots", "--skip-posebusters"])
+    assert args.inputs == [Path(name)]
+    assert args.plots and args.skip_posebusters
 
 
 @pytest.mark.parametrize("words", [[], ["--help"]])

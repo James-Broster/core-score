@@ -1,43 +1,25 @@
-"""Build each ensemble matrix, calculate CORE, and export score summaries."""
+"""Build each site ensemble's RMSD matrix, calculate CORE, and save the scores."""
 
-from pathlib import Path
+from core_score.results import diagnostic, write_csv, write_json
 from core_score.stages.utils.score_utils import build_matrix, core_score
-from core_score.results import diagnostic, write_json, write_csv
 
 
 def score_groups(groups, rows, output):
     scores = []
     for group in groups:
-        ids = sorted(p["pose_id"] for p in group["poses"])
-        result = dict(
-            ensemble=group["ensemble"],
-            site=group["site"],
-            original_pose_count=group.get("original_pose_count", len(ids)),
-            retained_pose_count=len(ids),
-            filter_pb_invalid=group.get("filter_pb_invalid", False),
-        )
-        try:
-            if group.get("stage_error"):
-                raise ValueError(group["stage_error"]["error"])
-            selected = [
-                r
-                for r in rows
-                if r["ensemble"] == group["ensemble"]
-                and str(r["site"]) == str(group["site"])
-            ]
-            matrix = build_matrix(ids, selected)
-            score = core_score(matrix)
-            result.update(
-                score,
-                status="complete",
-                group_pose_ids=[ids[i] for i in score["group_members"]],
-                pose_ids=ids,
-            )
-        except Exception as exc:
-            result.update(
-                status="incomplete", diagnostic=diagnostic("matrix_or_score", exc)
-            )
+        ids = sorted(pose["pose_id"] for pose in group["poses"])
+        result = dict(ensemble=group["ensemble"], site=group["site"], pose_count=len(ids))
+        error = group.get("error")
+        if not error:
+            try:
+                selected = [r for r in rows if (r["ensemble"], r["site"]) == (group["ensemble"], group["site"])]
+                score = core_score(build_matrix(ids, selected))
+                result.update(score, status="complete", group_pose_ids=[ids[i] for i in score["group_members"]], pose_ids=ids)
+            except ValueError as exc:
+                error = diagnostic("scoring", exc)
+        if error:
+            result.update(status="incomplete", error=error["error"])
         scores.append(result)
-    write_json(Path(output) / "scores.json", scores)
-    write_csv(Path(output) / "scores.csv", scores)
+    write_json(output / "scores.json", scores)
+    write_csv(output / "scores.csv", scores)
     return scores

@@ -1,75 +1,36 @@
-"""Prepare consistent ligand-site inputs; preserve predicted atomic coordinates."""
+"""Split ensembles with several identical ligand copies into one ensemble per site."""
 
-from pathlib import Path
-from core_score.stages.utils.sites import align_copy_centres, assign_sites, prepare_site_pose
-from core_score.results import diagnostic, fingerprint, write_json
+from core_score.results import diagnostic, write_json
+from core_score.stages.utils.sites import split_sites
 
 
-def prepare_site_groups(groups, output, *, ost="ost", timeout=None):
-    """Prepare one ensemble per ligand site after PoseBusters filtering."""
-
-    expanded, reports = [], []
+def prepare_site_groups(groups, output, *, timeout=None):
+    """One ensemble per ligand site. Ensembles with one copy pass through as site 1."""
+    split, reports = [], []
     for group in groups:
+        if group.get("error"):
+            split.append(dict(group, site="unresolved"))
+            continue
         try:
-            if group.get("pb_filter_error"):
-                raise ValueError(group["pb_filter_error"])
-            if any("prepared" not in p for p in group["poses"]):
-                raise ValueError(
-                    "One or more poses failed preparation; inspect prepared_manifest.json"
-                )
+            failed = [pose["pose_id"] for pose in group["poses"] if pose.get("error")]
+            if failed:
+                raise ValueError(f"Poses failed preparation: {failed}; see prepared_manifest.json")
             if not group["poses"]:
-                raise ValueError("No retained poses")
-            counts = {p["prepared"]["copies"] for p in group["poses"]}
+                raise ValueError("No poses left after PoseBusters filtering")
+            counts = {pose["prepared"]["copies"] for pose in group["poses"]}
             if len(counts) != 1:
-                raise ValueError(
-                    "Inconsistent ligand copy counts; no poses silently excluded"
-                )
+                # Copies can only be matched to sites when every pose has the same number.
+                raise ValueError(f"Poses have different numbers of ligand copies: {sorted(counts)}")
             copies = counts.pop()
             if copies == 1:
-                expanded.append(dict(group, site="1", n_input_copies=1))
+                split.append(dict(group, site="1"))
                 continue
-            poses = sorted(
-                group["poses"], key=lambda p: (p["seed"], p["sample"], p["pose_id"])
-            )
-            points, transforms = align_copy_centres(poses, copies, ost, timeout)
-            assignments, centres = assign_sites(points, copies)
-            mapping = {a.pose_id: a.chain_to_site for a in assignments}
-            reports.append(
-                dict(
-                    ensemble=group["ensemble"],
-                    anchor_pose=poses[0]["pose_id"],
-                    transforms=transforms,
-                    centres=centres,
-                    assignments=mapping,
-                    costs={a.pose_id: a.chain_to_cost for a in assignments},
-                    policy="historical_kmeans_hungarian_seed0",
-                    biological_correspondence_verified=False,
-                )
-            )
-            for site in range(copies):
-                selected = []
-                for pose in poses:
-                    copy = next(
-                        c
-                        for c in pose["prepared"]["copy_records"]
-                        if mapping[pose["pose_id"]][c["copy_id"]] == site
-                    )
-                    dest = (
-                        Path(output)
-                        / "prepared"
-                        / fingerprint((group["ensemble"], pose["pose_id"]))[:20]
-                        / f"site{site+1}.cif"
-                    )
-                    selected.append(prepare_site_pose(pose, copy, dest))
-                expanded.append(
-                    dict(group, poses=selected, site=str(site + 1), n_input_copies=1)
-                )
+            sites, report = split_sites(group, copies, output, timeout)
+            split += sites
+            reports.append(report)
         except Exception as exc:
             report = diagnostic("site_assignment", exc, ensemble=group["ensemble"])
             reports.append(report)
-            expanded.append(dict(group, site="unresolved", stage_error=report))
-    write_json(Path(output) / "sites.json", reports)
-    return expanded
-
-
-
+            split.append(dict(group, site="unresolved", error=report))
+    write_json(output / "sites.json", reports)
+    return split

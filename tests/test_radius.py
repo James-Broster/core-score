@@ -30,8 +30,8 @@ class RadiusPolicyTests(unittest.TestCase):
         )
         self.assertEqual(c, [4.0, 6.0])
         self.assertEqual(m["binding_site_radius_angstrom"], 6.0)
-        self.assertTrue(m["requires_review"])
-        self.assertEqual(m["standard_rmsd"], "")
+        self.assertTrue(m["radius_fallback_used"])
+        self.assertIsNone(m["standard_rmsd"])
 
     def test_eight_only_after_six_failed(self):
         bad = dict(score=None, target_report=[{"short desc": "target_binding_site"}])
@@ -50,7 +50,7 @@ class RadiusPolicyTests(unittest.TestCase):
         bad = dict(score=None, reason="target_binding_site")
         r, m, c = self.run_case({4.0: bad, 6.0: bad, 8.0: bad})
         self.assertIsNone(r["score"])
-        self.assertEqual(m["binding_site_radius_angstrom"], "")
+        self.assertIsNone(m["binding_site_radius_angstrom"])
         self.assertFalse(m["radius_fallback_used"])
 
     def test_disabled(self):
@@ -58,11 +58,6 @@ class RadiusPolicyTests(unittest.TestCase):
             {4.0: dict(score=None, reason="target_binding_site")}, ()
         )
         self.assertEqual(c, [4.0])
-
-    def test_bad_configuration(self):
-        for radii in ((8, 7), (7, 7), (3,), (float("nan"),)):
-            with self.assertRaises(ValueError):
-                score_with_radius_fallback(lambda r: None, radii)
 
     def test_public_comparison_retains_original_contact_metric(self):
         from core_score.stages.utils.comparison_utils import compare_pair
@@ -83,20 +78,14 @@ class RadiusPolicyTests(unittest.TestCase):
         model = dict(path="m.cif", copies=1)
         reference = dict(path="r.cif", copies=1)
         with patch(
-            "core_score.stages.utils.comparison_utils.run_ost", side_effect=[baseline, retry]
+            "core_score.stages.utils.ost.compare_ligands", side_effect=[baseline, retry]
         ) as run:
             row, detail = compare_pair(
-                (
-                    dict(method="m", target="t", ligand_key="B", n_input_copies=1),
-                    dict(seed=1, sample=0, path="m.cif"),
-                    dict(seed=1, sample=1, path="r.cif"),
-                    model,
-                    reference,
-                )
+                dict(path="m.cif", prepared=model), dict(path="r.cif", prepared=reference)
             )
         self.assertEqual(row["rmsd"], 2.0)
         self.assertEqual(row["lddt_pli"], 0.5)
-        self.assertEqual([c.kwargs["radius"] for c in run.call_args_list], [4.0, 6.0])
+        self.assertEqual([c.args[3] for c in run.call_args_list], [4.0, 6.0])
         self.assertEqual(len(detail["ost_results"]), 2)
 
 

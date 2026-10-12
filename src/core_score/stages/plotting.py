@@ -20,32 +20,20 @@ def plot_results(results, output):
 
     results, output = Path(results), Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((results / "analysis_manifest.json").read_text())
     with (results / "pairs.csv").open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    scores = (
-        json.loads((results / "scores.json").read_text())
-        if (results / "scores.json").exists()
-        else []
-    )
+    scores = json.loads((results / "scores.json").read_text())
     images = []
-    for group in manifest["groups"]:
-        ids = sorted(p["pose_id"] for p in group["poses"])
+    for score in scores:
+        group = score
+        ids = score.get("pose_ids") or []
         if not ids:
             continue
         index = {p: i for i, p in enumerate(ids)}
-        score = next(
-            (
-                s
-                for s in scores
-                if (s["ensemble"], s["site"]) == (group["ensemble"], group["site"])
-            ),
-            {},
-        )
         fig, axes = plt.subplots(1, 3, figsize=(15, 4), layout="constrained")
         for ax, metric, title in zip(
             axes,
-            ["rmsd", "bb_rmsd_mean", "lddt_pli"],
+            ["rmsd", "bb_rmsd", "lddt_pli"],
             ["Ligand RMSD (Å)", "Pocket backbone RMSD (Å)", "lDDT-PLI"],
         ):
             matrix = np.full((len(ids), len(ids)), np.nan)

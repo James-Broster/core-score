@@ -1,5 +1,4 @@
 from copy import deepcopy
-from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
 import pytest
@@ -33,13 +32,14 @@ ATOM 1 C CA A 0 0 0
             if native:
                 record['residue'] = list(keys[i])
             records.append(record)
-        poses.append(dict(pose_id=f'p{index}', seed=0, sample=index,
-                          prepared=dict(path=str(source), copies=2, copy_records=records)))
+        sdfs = [] if native else [r['ost_sdf'] for r in records]
+        poses.append(dict(ensemble='target', pose_id=f'p{index}', seed=0, sample=index,
+                          prepared=dict(path=str(source), copies=2, copy_records=records, ligand_sdfs=sdfs)))
     groups = [dict(ensemble='target', poses=poses)]
     original_groups = deepcopy(groups)
-    fit = SimpleNamespace(transform=np.eye(4), rmsd=0, chain_mapping={})
-    with patch('core_score.stages.utils.sites.rigid_transform', return_value=fit) as align:
-        sites = prepare_site_groups(groups, tmp_path / 'out')
+    fit = dict(transform=np.eye(4), rmsd=0, chain_mapping={})
+    with patch('core_score.stages.utils.ost.superpose', return_value=fit) as align:
+        sites = prepare_site_groups(groups, tmp_path)
     assert align.call_count == 1
     assert len(sites) == 2
     for site in sites:
@@ -61,7 +61,7 @@ ATOM 1 C CA A 0 0 0
 
 def test_single_copy_does_not_align(tmp_path):
     groups = [dict(ensemble='target', poses=[dict(prepared=dict(copies=1))])]
-    with patch('core_score.stages.utils.sites.rigid_transform') as align:
+    with patch('core_score.stages.utils.ost.superpose') as align:
         result = prepare_site_groups(groups, tmp_path)
     align.assert_not_called()
     assert result[0]['site'] == '1'

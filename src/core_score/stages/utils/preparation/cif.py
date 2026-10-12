@@ -79,7 +79,12 @@ def filter_records(doc, selected, destination):
         raise ValueError("CIF serialization changed a retained atom record")
 
 
-def write_receptor(doc, destination):
-    """Keep the original environment except selected ligands; do not truncate chain IDs."""
-    structure = gemmi.make_structure_from_block(doc.sole_block())
-    structure.write_pdb(str(destination))
+def write_receptor(source, ligands, destination):
+    """The predicted environment without the selected ligand residues, as PDB for PoseBusters.
+    Chain IDs are kept whole."""
+    doc = read_document(source)
+    table = doc.sole_block().find_mmcif_category("_atom_site.")
+    for i, row in reversed(list(enumerate(atom_rows(doc)))):
+        if row["group_PDB"] == "HETATM" and residue_key(row) in ligands:
+            table.remove_row(i)
+    gemmi.make_structure_from_block(doc.sole_block()).write_pdb(str(destination))

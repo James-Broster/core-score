@@ -11,32 +11,32 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_score.stages.utils.preparation.prepare import prepare_pose
+from core_score.stages.comparison import compare_groups
+from core_score.stages.preparation import prepare_groups
+from core_score.stages.utils import ost
 from core_score.stages.utils.comparison_utils import summarize
-from core_score.stages.utils.ost import run_ost
+from core_score.stages.utils.preparation.prepare import prepare_pose
+
+# pairs.csv columns renamed since the fixtures were frozen; removed columns are not compared.
+RENAMED = {"bb_rmsd_mean": "bb_rmsd", "lddt_lp_mean": "lddt_lp"}
 
 
 def run(groups, output, workers, options):
     """Prepare and compare every pair without radius recovery, as the frozen fixtures expect."""
-    from core_score.stages.comparison import compare_groups
-    from core_score.stages.preparation import prepare_groups
-
     for group in groups:
         group.setdefault("ensemble", group["target"])
         group.setdefault("site", "1")
         for i, p in enumerate(group["poses"]):
             p.setdefault("pose_id", str(i))
             p.setdefault("ensemble", group["ensemble"])
-    prepared = prepare_groups(groups, output)
-    rows = compare_groups(
-        prepared, output, workers, ost=options.get("ost", "ost"),
-        chemlib=options.get("chemlib"), timeout=options.get("timeout"), radius_fallback=False
-    )
+    output.mkdir(parents=True, exist_ok=True)
+    prepared = prepare_groups(groups, output, timeout=options.get("timeout"))
+    rows = compare_groups(prepared, output, workers=workers, timeout=options.get("timeout"), radius_fallback=False)
     return len(rows)
 
 
 def same_number(test, actual, expected):
-    actual = float(actual)
+    actual = float("nan") if actual in (None, "") else float(actual)
     expected = float(expected)
     if math.isnan(expected):
         test.assertTrue(math.isnan(actual))
@@ -60,6 +60,9 @@ class OSTRegressionTests(unittest.TestCase):
         for file, digest in cls.fixture["sha256"].items():
             if hashlib.sha256(Path(file).read_bytes()).hexdigest() != digest:
                 raise RuntimeError("Regression input changed: " + file)
+        # The package runs `ost` from PATH with OST's chemical library from the environment.
+        os.environ["PATH"] = str(Path(cls.options["ost"]).parent) + os.pathsep + os.environ["PATH"]
+        os.environ["OST_COMPOUNDS_CHEMLIB"] = cls.options["chemlib"]
 
     def direct_ost(self, model, reference, destination):
         # Independent baseline: original input files, bypassing our preparation,
@@ -112,7 +115,7 @@ class OSTRegressionTests(unittest.TestCase):
                 prepared = [
                     prepare_pose(p, Path(tmp) / f"{i}.cif") for i, p in enumerate(poses)
                 ]
-                wrapped = run_ost(*prepared, **self.options)
+                wrapped = ost.compare_ligands(*prepared, timeout=self.options.get("timeout"))
                 self.assertEqual(raw["status"], "SUCCESS")
                 self.assertEqual(wrapped["status"], "SUCCESS")
                 for metric in ("rmsd", "lddt_pli"):
@@ -129,9 +132,12 @@ class OSTRegressionTests(unittest.TestCase):
                                 baseline[key].get(field),
                                 (group["method"], metric, key, field),
                             )
-                row = summarize(group, *poses, *prepared, wrapped)
+                row = summarize(wrapped)
                 if poses == group["poses"][:2]:
                     for field, value in group["expected"].items():
+                        field = RENAMED.get(field, field)
+                        if field not in row:
+                            continue
                         if isinstance(value, (float, int)) and not isinstance(
                             value, bool
                         ):

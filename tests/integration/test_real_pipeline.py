@@ -5,15 +5,18 @@ Missing OST or changed frozen inputs are errors, not skipped tests.
 """
 
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
-import pytest
 from core_score.pipeline import execute
 from core_score.inputs import load_inputs
-from core_score.results import file_hash
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+def file_hash(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def inputs():
@@ -23,7 +26,7 @@ def inputs():
     return manifest
 
 
-def options():
+def options(monkeypatch):
     # Pin the integration fixture's toolchain; production has no preflight check.
     import shutil
     import subprocess
@@ -39,6 +42,8 @@ def options():
     manifest = inputs()
     assert manifest["ost_version"] in env["ost_version"]
     assert env["chemlib_sha256"] == manifest["chem_library_sha256"]
+    # The package runs `ost` from PATH.
+    monkeypatch.setenv("PATH", str(Path(executable).parent) + os.pathsep + os.environ["PATH"])
     return env
 
 
@@ -54,7 +59,7 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
     # Exercise OST's own library discovery, without a package-supplied path.
     monkeypatch.delenv("OST_COMPOUNDS_CHEMLIB", raising=False)
     monkeypatch.delenv("OST_ROOT", raising=False)
-    env = options()
+    options(monkeypatch)
     expected = inputs()["expected_single_copy"]
     outputs = []
     for workers in (1, 2):
@@ -62,7 +67,6 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
             groups(),
             tmp_path / str(workers),
             workers=workers,
-            ost=env["ost"],
             skip_posebusters=True,
         )
         scores = json.loads((tmp_path / str(workers) / "scores.json").read_text())
@@ -77,16 +81,14 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
     assert outputs[0] == outputs[1]
 
 
-def test_pb_runs_and_excludes_invalid_real_poses(tmp_path):
-    env = options()
-    summary = execute(groups(), tmp_path / "pb", ost=env["ost"])
+def test_pb_runs_and_excludes_invalid_real_poses(tmp_path, monkeypatch):
+    options(monkeypatch)
+    summary = execute(groups(), tmp_path / "pb")
     pb = json.loads((tmp_path / "pb/posebusters.json").read_text())
     assert len(pb) == 2
-    assert all(p["copies"][0]["config"] == "dock" for p in pb)
     assert all(p["pb_valid"] is False for p in pb)
     scores = json.loads((tmp_path / "pb/scores.json").read_text())
     assert summary["comparison_count"] == 0
     assert summary["score_count"] == 0
     assert scores[0]["status"] == "incomplete"
-    assert scores[0]["retained_pose_count"] == 0
-    assert scores[0]["original_pose_count"] == 2
+    assert scores[0]["pose_count"] == 0

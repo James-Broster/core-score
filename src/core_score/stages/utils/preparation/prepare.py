@@ -1,130 +1,81 @@
-"""Prepare each input once; preserve original coordinates and record all routes."""
+"""Prepare one structure: select its ligand copies, write SDFs for OST and PoseBusters, and
+write the receptor PoseBusters checks against. Predicted coordinates are never changed."""
 
 from pathlib import Path
 import numpy as np
 from rdkit import Chem
-from core_score.stages.utils.preparation.cif import (
-    read_document,
-    atom_rows,
-    filter_records,
-    residue_key,
-    write_receptor,
-    ligand_residues,
-)
+from core_score.results import fingerprint
 from core_score.stages.utils.preparation.chemistry import choose_ligands, heavy_atoms
-from core_score.stages.utils.preparation.sdf import make_ligand, write_molecule, read_original
+from core_score.stages.utils.preparation.cif import filter_records, ligand_residues, read_document, write_receptor
+from core_score.stages.utils.preparation.sdf import make_ligand, read_original, write_molecule
+
+
+def pose_directory(output, pose):
+    return Path(output) / "prepared" / fingerprint((pose["ensemble"], pose["pose_id"]))[:20]
 
 
 def prepare_pose(pose, destination, cache=None):
-    source = Path(pose["path"]).resolve(strict=True)
-    destination = Path(destination)
+    """Prepared record for one pose; its files are written beside `destination`."""
+    source = Path(pose["path"])
     destination.parent.mkdir(parents=True, exist_ok=True)
     doc = read_document(source)
-    atom_rows(doc)
     if pose.get("ligand_sdfs"):
-        paths = [str(Path(p).resolve(strict=True)) for p in pose["ligand_sdfs"]]
-        native = str(source)
-        if source.suffix.lower() in (".pdb", ".ent"):
-            doc.write_file(str(destination))
-            native = str(destination.resolve())
-        copies = []
-        excluded = set()
-        for i, path in enumerate(paths):
-            mol = read_original(path, pose.get("smiles"))
-            heavy = Chem.RemoveAllHs(mol)
-            sdf_atoms = sorted(
-                (a.GetSymbol(), *heavy.GetConformer().GetPositions()[j])
-                for j, a in enumerate(heavy.GetAtoms())
-            )
-            for key, records in ligand_residues(doc).items():
-                atoms = sorted(
-                    (
-                        r["type_symbol"].capitalize(),
-                        *[float(r["Cartn_" + c]) for c in "xyz"],
-                    )
-                    for r in heavy_atoms(records)
-                )
-                if len(atoms) == len(sdf_atoms) and all(
-                    a[0] == b[0] and np.allclose(a[1:], b[1:], atol=0.00011, rtol=0)
-                    for a, b in zip(atoms, sdf_atoms)
-                ):
-                    excluded.add(key)
-            copies.append(
-                dict(
-                    copy_id=str(i),
-                    pb_sdf=path,
-                    ost_sdf=path,
-                    centre=Chem.RemoveAllHs(mol)
-                    .GetConformer()
-                    .GetPositions()
-                    .mean(0)
-                    .tolist(),
-                    provenance="original_sdf",
-                    pb_error=None,
-                )
-            )
-        receptor_doc = read_document(source)
-        table = receptor_doc.sole_block().find_mmcif_category("_atom_site.")
-        for i, row in reversed(list(enumerate(atom_rows(receptor_doc)))):
-            if row["group_PDB"] == "HETATM" and residue_key(row) in excluded:
-                table.remove_row(i)
-        receptor = destination.with_suffix(".receptor.pdb")
-        write_receptor(receptor_doc, receptor)
-        return dict(
-            path=native,
-            ligand_sdfs=paths,
-            copies=len(paths),
-            copy_records=copies,
-            source=str(source),
-            receptor=str(receptor.resolve()),
-            route="original_sdf",
-        )
+        prepared, ligands = from_original_sdfs(pose, doc, source, destination)
+    else:
+        prepared, ligands = from_structure(pose, doc, destination, cache)
+    receptor = destination.with_suffix(".receptor.pdb")
+    write_receptor(source, ligands, receptor)
+    return dict(prepared, receptor=str(receptor))
+
+
+def from_original_sdfs(pose, doc, source, destination):
+    """Supplied SDFs, already in the receptor's frame, are the ligand copies."""
+    path = str(source)
+    if source.suffix.lower() in (".pdb", ".ent"):
+        doc.write_file(str(destination))
+        path = str(destination)
+    residues = ligand_residues(doc)
+    copies, matched = [], set()
+    for i, sdf in enumerate(pose["ligand_sdfs"]):
+        mol = Chem.RemoveAllHs(read_original(sdf, pose.get("smiles")))
+        # Any structure residue holding the same ligand is left out of the receptor.
+        matched |= {key for key, rows in residues.items() if same_atoms(rows, mol)}
+        copies.append(dict(copy_id=str(i), ost_sdf=sdf, pb_sdf=sdf, pb_error=None, provenance="original_sdf",
+                           centre=mol.GetConformer().GetPositions().mean(0).tolist()))
+    prepared = dict(path=path, ligand_sdfs=list(pose["ligand_sdfs"]), copies=len(copies),
+                    copy_records=copies, route="original_sdf")
+    return prepared, matched
+
+
+def from_structure(pose, doc, destination, cache):
+    """Ligand residues selected in the structure, with chemistry built from their atoms."""
     selected = choose_ligands(doc, pose)
-    copy_records = []
-    # Keep the full predicted environment for PB, excluding the selected ligand copies.
-    receptor_doc = read_document(source)
-    table = receptor_doc.sole_block().find_mmcif_category("_atom_site.")
-    for i, row in reversed(list(enumerate(atom_rows(receptor_doc)))):
-        if row["group_PDB"] == "HETATM" and residue_key(row) in selected:
-            table.remove_row(i)
-    receptor_path = destination.with_suffix(".receptor.pdb")
-    write_receptor(receptor_doc, receptor_path)
+    copies = []
     for i, (key, rows) in enumerate(selected.items()):
-        cache_key = (
-            pose.get("ensemble"),
-            pose.get("smiles"),
-            tuple(sorted(r.get("label_atom_id", "") for r in heavy_atoms(rows))),
-        )
-        ost_mol, pb_mol, provenance, pb_error = make_ligand(
-            doc, rows, pose.get("smiles"), cache, cache_key
-        )
-        ost_path = destination.with_name(destination.stem + f".copy{i}.ost.sdf")
-        write_molecule(ost_mol, ost_path)
-        pb_path = destination.with_name(destination.stem + f".copy{i}.pb.sdf")
+        heavy = heavy_atoms(rows)
+        cache_key = (pose.get("ensemble"), pose.get("smiles"), tuple(sorted(r.get("label_atom_id", "") for r in heavy)))
+        ost_mol, pb_mol, provenance, pb_error = make_ligand(doc, rows, pose.get("smiles"), cache, cache_key)
+        ost_sdf = destination.with_name(f"{destination.stem}.copy{i}.ost.sdf")
+        write_molecule(ost_mol, ost_sdf)
+        pb_sdf = None
         if pb_mol is not None:
-            write_molecule(pb_mol, pb_path)
-        xyz = [[float(r["Cartn_" + c]) for c in "xyz"] for r in heavy_atoms(rows)]
-        copy_records.append(
-            dict(
-                copy_id=str(i),
-                residue=list(key),
-                ost_sdf=str(ost_path.resolve()),
-                pb_sdf=str(pb_path.resolve()) if pb_mol is not None else None,
-                pb_error=pb_error,
-                provenance=provenance,
-                centre=np.mean(xyz, axis=0).tolist(),
-            )
-        )
+            pb_sdf = destination.with_name(f"{destination.stem}.copy{i}.pb.sdf")
+            write_molecule(pb_mol, pb_sdf)
+            pb_sdf = str(pb_sdf)
+        centre = np.mean([[float(r["Cartn_" + c]) for c in "xyz"] for r in heavy], axis=0)
+        copies.append(dict(copy_id=str(i), residue=list(key), ost_sdf=str(ost_sdf), pb_sdf=pb_sdf,
+                           pb_error=pb_error, provenance=provenance, centre=centre.tolist()))
     filter_records(doc, set(selected), destination)
-    return dict(
-        path=str(destination.resolve()),
-        ligand_sdfs=[],
-        copies=len(selected),
-        source=str(source),
-        copy_records=copy_records,
-        receptor=str(receptor_path.resolve()),
-        route="native_cif",
-        ligand_residues=[list(k) for k in selected],
+    prepared = dict(path=str(destination), ligand_sdfs=[], copies=len(copies), copy_records=copies, route="native_cif")
+    return prepared, set(selected)
+
+
+def same_atoms(rows, mol):
+    """Whether a structure residue holds the molecule's heavy atoms at the same coordinates."""
+    observed = sorted((r["type_symbol"].capitalize(), *(float(r["Cartn_" + c]) for c in "xyz"))
+                      for r in heavy_atoms(rows))
+    expected = sorted((a.GetSymbol(), *xyz) for a, xyz in zip(mol.GetAtoms(), mol.GetConformer().GetPositions()))
+    # SDF coordinates have four decimal places.
+    return len(observed) == len(expected) and all(
+        a[0] == b[0] and np.allclose(a[1:], b[1:], atol=0.00011, rtol=0) for a, b in zip(observed, expected)
     )
-
-

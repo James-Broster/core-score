@@ -70,20 +70,18 @@ def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
     assert cache == {}
 
 
-def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf(monkeypatch):
+def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf():
     from unittest.mock import Mock
-    import posebusters
-    from core_score.stages.utils.posebusters_utils import run_pose
+    from core_score.stages.utils.posebusters_utils import check_pose
 
-    buster = Mock(config={"modules": []})
-    monkeypatch.setattr(posebusters, "PoseBusters", lambda **kwargs: buster)
-    result = run_pose(
-        dict(ensemble="e", pose_id="p", path="input.cif"),
-        dict(receptor="receptor.pdb", copy_records=[dict(
-            copy_id="0", pb_sdf="stale.sdf", pb_error="Identity mismatch")]))
+    buster = Mock()
+    result = check_pose(buster, [], dict(
+        ensemble="e", pose_id="p", path="input.cif",
+        prepared=dict(receptor="receptor.pdb", copy_records=[dict(
+            copy_id="0", pb_sdf="stale.sdf", pb_error="Identity mismatch", provenance=None)])))
     buster.bust.assert_not_called()
     assert result["pb_valid"] is None
-    assert result["copies"][0]["status"] == "preparation_or_execution_error"
+    assert result["copies"][0]["error"] == "Identity mismatch"
 
 
 def test_peer_graph_recovery_keeps_recipient_coordinates_and_cache_scope(monkeypatch):

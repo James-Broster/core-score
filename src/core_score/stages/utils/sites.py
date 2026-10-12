@@ -1,169 +1,85 @@
 """Give each ligand copy a site label that is consistent across an ensemble."""
 
-import dataclasses
-from pathlib import Path
 import numpy as np
 from scipy.cluster.vq import kmeans2
 from scipy.optimize import linear_sum_assignment
-from core_score.stages.utils.preparation.cif import read_document, filter_records
-from core_score.stages.utils.ost import rigid_transform
+from core_score.stages.utils import ost
+from core_score.stages.utils.preparation.cif import filter_records, read_document
+from core_score.stages.utils.preparation.prepare import pose_directory
 
 
-def align_copy_centres(poses, copies, ost, timeout):
-    anchor = poses[0]
+def split_sites(group, copies, output, timeout=None):
+    """One ensemble per ligand site, and a report of how each copy was assigned.
+
+    Every pose is superposed onto the first (anchor) pose by its protein, then each
+    pose's copy centres are matched one-to-one to shared site centres. Site labels are
+    arbitrary and do not prove biological correspondence.
+    """
+    poses = group["poses"]
+    points, transforms = align_copy_centres(poses, timeout)
+    sites, costs, centres = assign_sites(points, copies)
+    split = []
+    for site in range(copies):
+        site_poses = []
+        for pose in poses:
+            copy = next(c for c in pose["prepared"]["copy_records"] if sites[pose["pose_id"]][c["copy_id"]] == site)
+            site_poses.append(site_pose(pose, copy, pose_directory(output, pose) / f"site{site + 1}.cif"))
+        split.append(dict(group, poses=site_poses, site=str(site + 1)))
+    report = dict(ensemble=group["ensemble"], anchor_pose=poses[0]["pose_id"], transforms=transforms,
+                  centres=centres, assignments=sites, costs=costs)
+    return split, report
+
+
+def align_copy_centres(poses, timeout=None):
+    """Each pose's ligand-copy centres, moved into the anchor pose's frame by OST superposition."""
+    anchor = poses[0]["prepared"]["path"]
     points, transforms = {}, {}
     for pose in poses:
-        prepared = pose["prepared"]
-        if len(prepared["copy_records"]) != copies:
-            raise ValueError("Missing copy coordinates for site correspondence")
-        if pose is anchor:
-            transform = np.eye(4)
-        else:
-            fit = rigid_transform(
-                ost,
-                Path(prepared["path"]),
-                Path(anchor["prepared"]["path"]),
-                timeout,
-            )
-            transform = fit.transform
-            transforms[pose["pose_id"]] = dict(
-                rmsd=fit.rmsd,
-                chain_mapping=fit.chain_mapping,
-                transform=transform,
-            )
-        coordinates = apply_transform(
-            [c["centre"] for c in prepared["copy_records"]], transform
-        )
-        points[pose["pose_id"]] = {
-            c["copy_id"]: xyz
-            for c, xyz in zip(prepared["copy_records"], coordinates)
-        }
+        copies = pose["prepared"]["copy_records"]
+        transform = np.eye(4)
+        if pose is not poses[0]:
+            transforms[pose["pose_id"]] = fit = ost.superpose(pose["prepared"]["path"], anchor, timeout)
+            transform = fit["transform"]
+        centres = np.array([copy["centre"] for copy in copies], dtype=float)
+        moved = (np.hstack([centres, np.ones((len(centres), 1))]) @ transform.T)[:, :3]
+        points[pose["pose_id"]] = {copy["copy_id"]: xyz for copy, xyz in zip(copies, moved)}
     return points, transforms
 
 
-def prepare_site_pose(pose, copy, destination):
-    prepared = pose["prepared"]
-    if copy.get("residue"):
-        filter_records(
-            read_document(prepared["path"]), {tuple(copy["residue"])}, destination
-        )
-        site_prepared = dict(
-            prepared,
-            path=str(destination.resolve()),
-            copies=1,
-            ligand_sdfs=[],
-            copy_records=[copy],
-        )
-    else:
-        site_prepared = dict(
-            prepared,
-            copies=1,
-            ligand_sdfs=[copy["ost_sdf"]],
-            copy_records=[copy],
-        )
-    return dict(pose, prepared=site_prepared)
+def assign_sites(points, k, seed=0, max_iter=50):
+    """Label each pose's k copies with k sites, exactly one copy per site per pose.
 
-
-def apply_transform(coords: np.ndarray, transform: np.ndarray) -> np.ndarray:
-    """Apply a 4x4 homogeneous transform to an (N, 3) array of coordinates. Pure arithmetic:
-    the transform itself always comes from rigid_transform(), i.e. from OST."""
-    coords = np.asarray(coords, dtype=float)
-    if coords.ndim != 2 or coords.shape[1] != 3:
-        raise ValueError(
-            f"expected an (N, 3) coordinate array, got shape {coords.shape}"
-        )
-    homogeneous = np.hstack([coords, np.ones((len(coords), 1))])
-    return (homogeneous @ transform.T)[:, :3]
-
-
-@dataclasses.dataclass(frozen=True)
-class SiteAssignment:
-    """One pose's copies, each pinned to exactly one site label (0..k-1)."""
-
-    pose_id: object
-    chain_to_site: dict  # {chain_label: site_index}
-    chain_to_cost: dict  # {chain_label: squared distance to that site's centroid}
-
-
-def assign_sites(
-    pose_points: dict, k: int, seed: int = 0, max_iter: int = 50
-) -> tuple[list[SiteAssignment], np.ndarray]:
-    """Assign each pose's k ligand-copy coordinates to k persistent site labels, consistent
-    across all poses, with an exact one-copy-per-pose-per-site guarantee.
-
-    pose_points: {pose_id: {chain_label: xyz}} -- xyz already in one shared coordinate frame
-                 (i.e. already passed through apply_transform against a common reference).
-                 Every pose must supply exactly k points; a pose with a different count is
-                 the caller's responsibility to exclude beforehand and report, not silently
-                 drop here (this function raises if that invariant is violated).
-    k:           the group's expected number of identical copies.
-
-    Returns (assignments, final_centroids). The site *labels* (0..k-1) are arbitrary --
-    only their consistency across poses is meaningful (see site_label_permutation_distance
-    for comparing two labellings up to a global relabelling).
-
-    Method: k-means gives an initial guess for the k centroids (not a final assignment --
-    plain k-means has no per-pose one-to-one constraint and is not trusted for that). Each
-    pose's points are then optimally assigned to those k centroids one-to-one via the
-    Hungarian algorithm (scipy.optimize.linear_sum_assignment, cost = squared distance),
-    which guarantees exactly one copy per pose per site by construction, however displaced
-    a copy is -- there is no distance threshold that drops a point. Centroids are then
-    re-estimated from the new assignment and the process repeats to convergence (or
-    max_iter), a fixed-point refinement of k-means-with-a-hard-per-pose-constraint.
+    k-means seeds the site centres. Each pose's copies are then matched one-to-one to the
+    centres (Hungarian algorithm on squared distance) and the centres re-estimated, until
+    the labels stop changing. Returns {pose: {copy: site}}, {pose: {copy: squared
+    distance}} and the final centres.
     """
-    pose_ids = list(pose_points)
-    for pid in pose_ids:
-        n = len(pose_points[pid])
-        if n != k:
-            raise ValueError(
-                f"pose {pid!r} has {n} copies, expected exactly k={k}; caller must exclude/report this pose before calling assign_sites"
-            )
-
-    all_points = np.vstack(
-        [np.asarray(list(pose_points[pid].values())) for pid in pose_ids]
-    )
-    centroids, _ = kmeans2(all_points, k, seed=seed, minit="++")
-
-    assignment_of = (
-        {}
-    )  # pose_id -> (ordered chain labels, site index per chain, cost per chain)
+    all_points = np.vstack([np.asarray(list(copies.values())) for copies in points.values()])
+    centres, _ = kmeans2(all_points, k, seed=seed, minit="++")
+    labels, costs = {}, {}
     for _ in range(max_iter):
-        changed = False
-        for pid in pose_ids:
-            chains = list(pose_points[pid].keys())
-            pts = np.asarray([pose_points[pid][c] for c in chains])
-            cost = ((pts[:, None, :] - centroids[None, :, :]) ** 2).sum(
-                axis=2
-            )  # (k, k)
-            row_ind, col_ind = linear_sum_assignment(cost)
-            new = tuple(col_ind[row_ind.argsort()])
-            if assignment_of.get(pid, (None,))[1:2] != (new,):
-                changed = True
-            assignment_of[pid] = (chains, new, cost[row_ind, col_ind])
-        if not changed and _ > 0:
-            break
-        for s in range(k):
-            pts_s = []
-            for pid in pose_ids:
-                chains, sites, _ = assignment_of[pid]
-                for c, site in zip(chains, sites):
-                    if site == s:
-                        pts_s.append(pose_points[pid][c])
-            if pts_s:
-                centroids[s] = np.mean(pts_s, axis=0)
-    else:
-        raise ValueError(
-            "Site correspondence did not converge; no site assignments accepted"
-        )
+        previous = dict(labels)
+        for pose_id, copies in points.items():
+            xyz = np.asarray(list(copies.values()))
+            cost = ((xyz[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2)
+            rows, sites = linear_sum_assignment(cost)
+            labels[pose_id] = dict(zip(copies, (int(s) for s in sites)))
+            costs[pose_id] = dict(zip(copies, (float(c) for c in cost[rows, sites])))
+        if labels == previous:
+            return labels, costs, centres
+        for site in range(k):
+            members = [points[p][c] for p, assigned in labels.items() for c, s in assigned.items() if s == site]
+            if members:
+                centres[site] = np.mean(members, axis=0)
+    raise ValueError("Site assignment did not converge; no site labels accepted")
 
-    results = []
-    for pid in pose_ids:
-        chains, sites, costs = assignment_of[pid]
-        results.append(
-            SiteAssignment(
-                pose_id=pid,
-                chain_to_site=dict(zip(chains, (int(s) for s in sites))),
-                chain_to_cost=dict(zip(chains, (float(c) for c in costs))),
-            )
-        )
-    return results, centroids
+
+def site_pose(pose, copy, destination):
+    """The pose reduced to one ligand copy, with its original coordinates."""
+    prepared = dict(pose["prepared"], copies=1, copy_records=[copy])
+    if copy.get("residue"):
+        filter_records(read_document(prepared["path"]), {tuple(copy["residue"])}, destination)
+        prepared["path"] = str(destination)
+    if prepared["ligand_sdfs"]:
+        prepared["ligand_sdfs"] = [copy["ost_sdf"]]
+    return dict(pose, prepared=prepared)

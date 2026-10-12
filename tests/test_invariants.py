@@ -3,7 +3,6 @@
 import copy
 import csv
 import io
-import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,23 +11,12 @@ from unittest.mock import patch
 import gemmi
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.stages.utils.comparison_utils import summarize
-from core_score.stages.utils.ost import run_ost
+from core_score.stages.utils.comparison_utils import pair_job, summarize
 from core_score.stages.utils.preparation.prepare import prepare_pose
 from core_score.stages.utils.preparation.cif import filter_records, ligand_residues, read_document
 
 
 class SummaryTests(unittest.TestCase):
-    def summary(self, payload, copies=1):
-        return summarize(
-            dict(method="test", target="target", ligand_key="B", n_input_copies=copies),
-            dict(seed=1, sample=0),
-            dict(seed=1, sample=1),
-            dict(copies=copies),
-            dict(copies=copies),
-            payload,
-        )
-
     def test_assigned_values_are_not_replaced_by_a_better_unassigned_match(self):
         payload = dict(
             status="SUCCESS",
@@ -41,7 +29,7 @@ class SummaryTests(unittest.TestCase):
             lddt_pli=dict(assigned_scores=[dict(score=0.81234567890123)]),
         )
         original = copy.deepcopy(payload)
-        row = self.summary(payload)
+        row = summarize(payload)
         self.assertEqual(row["rmsd"], 1.23456789012345)
         self.assertEqual(row["lddt_pli"], 0.81234567890123)
         self.assertEqual(payload, original)
@@ -51,50 +39,44 @@ class SummaryTests(unittest.TestCase):
         writer.writerow(row)
         stream.seek(0)
         decoded = next(csv.DictReader(stream))
-        for metric in ("rmsd", "lddt_pli", "bb_rmsd_mean", "lddt_lp_mean"):
+        for metric in ("rmsd", "lddt_pli", "bb_rmsd", "lddt_lp"):
             self.assertEqual(float(decoded[metric]), row[metric])
 
     def test_missing_assignment_is_not_zero(self):
-        row = self.summary(dict(status="SUCCESS", rmsd=dict(assigned_scores=[])))
+        row = summarize(dict(status="SUCCESS", rmsd=dict(assigned_scores=[])))
         self.assertEqual(row["n_assigned"], 0)
-        self.assertTrue(math.isnan(row["rmsd"]))
-        self.assertTrue(math.isnan(row["rmsd_mean"]))
+        self.assertIsNone(row["rmsd"])
 
-    def test_repeated_copies_keep_all_assigned_scores(self):
-        row = self.summary(
-            dict(
-                status="SUCCESS",
-                rmsd=dict(assigned_scores=[dict(score=1.0), dict(score=3.0)]),
-            ),
-            copies=2,
+    def test_repeated_copies_have_no_single_value(self):
+        row = summarize(
+            dict(status="SUCCESS", rmsd=dict(assigned_scores=[dict(score=1.0), dict(score=3.0)]))
         )
         self.assertEqual(row["n_assigned"], 2)
-        self.assertTrue(math.isnan(row["rmsd"]))
-        self.assertEqual(
-            (row["rmsd_min"], row["rmsd_mean"], row["rmsd_max"]), (1.0, 2.0, 3.0)
-        )
+        self.assertIsNone(row["rmsd"])
 
     def test_failure_cannot_leak_partial_values_as_success(self):
-        row = self.summary(
+        row = summarize(
             dict(
                 status="FAILURE",
                 exception="mapping failed",
                 rmsd=dict(assigned_scores=[dict(score=0.1)]),
             )
         )
-        self.assertTrue(math.isnan(row["rmsd"]))
+        self.assertIsNone(row["rmsd"])
         self.assertEqual(row["error"], "mapping failed")
 
     def test_timeout_is_explicit(self):
         import subprocess
 
+        prepared = dict(path="model.cif", ligand_sdfs=[], copies=1)
+        pose = lambda name: dict(pose_id=name, path=name, prepared=prepared)
         with patch(
             "core_score.stages.utils.ost.subprocess.run",
             side_effect=subprocess.TimeoutExpired("ost", 1),
         ):
-            result = run_ost(dict(path="model.cif"), dict(path="reference.cif"))
-        self.assertEqual(result["status"], "FAILURE")
-        self.assertIn("TimeoutExpired", result["exception"])
+            row, detail = pair_job((dict(ensemble="e", site="1"), pose("a"), pose("b")))
+        self.assertEqual(row["n_assigned"], 0)
+        self.assertIn("TimeoutExpired", row["error"])
 
 
 class PreparationTests(unittest.TestCase):
@@ -160,7 +142,7 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
             Chem.MolToMolFile(ligand, str(sdf))
             contents = sdf.read_bytes()
             result = prepare_pose(
-                dict(path=str(source), ligand_sdfs=[str(sdf.resolve())], smiles="CCO"),
+                dict(path=str(source.resolve()), ligand_sdfs=[str(sdf.resolve())], smiles="CCO"),
                 Path(tmp) / "unused.cif",
             )
             self.assertEqual(result["path"], str(source.resolve()))

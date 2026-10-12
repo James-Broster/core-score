@@ -9,8 +9,8 @@ from core_score.stages.utils.preparation.cif import ligand_residues
 
 def template_mol(smiles):
     mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        raise ValueError("Invalid ligand SMILES")
+    if mol is None or not mol.GetNumHeavyAtoms():
+        raise ValueError("ligand SMILES is missing or invalid")
     return Chem.RemoveAllHs(mol)
 
 
@@ -37,9 +37,6 @@ def choose_ligands(doc, pose):
         selected = {
             k: v for k, v in selected.items() if k[1] == str(pose["ligand_residue"])
         }
-    if pose.get("ligand_residues"):
-        keys = {tuple(k) for k in pose["ligand_residues"]}
-        selected = {k: v for k, v in selected.items() if k in keys}
     if pose.get("smiles"):
         expected = formula(template_mol(pose["smiles"]))
         selected = {
@@ -48,10 +45,7 @@ def choose_ligands(doc, pose):
             if Counter(r["type_symbol"].capitalize() for r in heavy_atoms(v))
             == expected
         }
-    explicit = any(
-        pose.get(k)
-        for k in ("ligand_chains", "ligand_residue", "ligand_residues", "smiles")
-    )
+    explicit = any(pose.get(k) for k in ("ligand_chains", "ligand_residue", "smiles"))
     if not explicit and len(selected) != 1:
         raise ValueError(
             f"Ambiguous ligand selection; candidates: {list(candidates)}. Supply ligand selection or SMILES."

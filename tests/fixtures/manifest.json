@@ -9,8 +9,8 @@
   "expected_single_copy": {
     "rmsd": 0.2812016010284424,
     "lddt_pli": 1.0,
-    "bb_rmsd_mean": 0.07564989477396011,
-    "lddt_lp_mean": 1.0,
+    "bb_rmsd": 0.07564989477396011,
+    "lddt_lp": 1.0,
     "n_assigned": 1,
     "error": ""
   }
