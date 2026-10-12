@@ -410,7 +410,7 @@ flowchart TB
 
     subgraph D4["plotting.py"]
         direction LR
-        e1["plot_core_scores()<br/>with --plot"]:::fn --> e2["stack()<br/>a dot per complex"]:::fn --> e3[/"core_scores.png"/]:::file
+        e1["plot_core_scores()<br/>with --plot"]:::fn --> e2["title()<br/>counts above each cutoff"]:::fn --> e3[/"core_scores.png"/]:::file
     end
 
     start --> D1 --> d1 --> D2 --> d2 --> D3 --> D4
@@ -564,8 +564,8 @@ run carries on.
 ### `stages/plotting.py`
 | Function | Does |
 | --- | --- |
-| `plot_core_scores(rows, output, bin_width)` | `core_scores.png` per T: a dot per complex. Imports matplotlib only when called. |
-| `stack(scores, bin_width)` | Dot positions: one column per bin, stacked. |
+| `plot_core_scores(rows, output, cutoffs, bin_width)` | `core_scores.png` per T: a histogram of the scores, with a line at each cutoff. Imports matplotlib only when called. |
+| `title(scores, threshold, cutoffs)` | The heading, and how many complexes are at or above each cutoff. |
 
 ### `structure/cif.py`
 | Function | Does |

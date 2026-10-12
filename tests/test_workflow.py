@@ -2,7 +2,6 @@ import json
 from unittest.mock import Mock, patch
 import numpy as np
 import pytest
-from pytest import approx
 from core_score import core_score
 from core_score.stages.scoring import score_groups
 from core_score.stages.scoring import build_matrix
@@ -243,12 +242,22 @@ def test_poses_table_joins_confidence_validity_and_reference():
     assert rows[3]["note"] == "ValueError: no ligand"
 
 
-def test_plot_stacks_dots_that_share_a_score():
-    from core_score.stages.plotting import stack
+def test_plot_titles_count_the_complexes_above_each_cutoff():
+    from core_score.stages.plotting import title
 
-    x, y = stack([0.10, 0.105, 0.11, 0.40], bin_width=0.02)
-    assert x == approx([0.11, 0.11, 0.11, 0.41])  # one column per bin, drawn at its middle
-    assert y == [1, 2, 3, 1]
+    assert title([0.95, 0.85, 0.4], 2.0, (0.8, 0.9)) == (
+        "n = 3 complexes \u00b7 threshold 2 \u00c5\n2 at or above 0.8  \u00b7  1 at or above 0.9")
+    assert title([0.5], 1.0, ()) == "n = 1 complexes \u00b7 threshold 1 \u00c5"
+
+
+def test_plot_writes_one_png_per_threshold(tmp_path):
+    pytest.importorskip("matplotlib")
+    from core_score.stages.plotting import plot_core_scores
+
+    rows = [dict(threshold_angstrom=t, core_score=c)
+            for t in (1.0, 2.0) for c in (0.4, 0.9, None)]
+    plot_core_scores(rows, tmp_path, cutoffs=(0.8,))
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["core_scores_1A.png", "core_scores_2A.png"]
 
 
 def test_confidence_is_given_for_every_pose_or_none(tmp_path):

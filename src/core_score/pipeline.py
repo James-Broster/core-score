@@ -78,7 +78,7 @@ def execute(
     rows_by_complex = write_report(prepared, scores, pb_records, labels, output, cutoffs)
     if plot:
         from core_score.stages.plotting import plot_core_scores
-        plot_core_scores(rows_by_complex, output)
+        plot_core_scores(rows_by_complex, output, cutoffs)
 
     summary = summarize_run(scores, rows, sites, labels)
     write_json(details / "status.json", summary["status"])
