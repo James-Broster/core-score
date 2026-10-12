@@ -10,8 +10,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import gemmi
+from rdkit import Chem
+from rdkit.Chem import AllChem
 from core_score.stages.utils.comparison_utils import summarize, run_ost
-from core_score.stages.preparation import prepare_pose
+from core_score.stages.utils.prepare_utils import prepare_pose
+from core_score.stages.utils.preparation.cif import filter_records, ligand_residues, read_document
 
 
 class SummaryTests(unittest.TestCase):
@@ -118,9 +121,9 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
             source.write_text(self.CIF)
             original = source.read_bytes()
             destination = Path(tmp) / "prepared.cif"
-            result = prepare_pose(
-                dict(path=str(source), ligand_chains=["B", "C"]), destination
-            )
+            doc = read_document(source)
+            kept = {key for key in ligand_residues(doc) if key[0] in ("B", "C")}
+            filter_records(doc, kept, destination)
             before = (
                 gemmi.cif.read_file(str(source.resolve()))
                 .sole_block()
@@ -135,7 +138,7 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
                 [list(r) for r in after], [list(r) for r in before if r[4] != "X"]
             )
             self.assertEqual(source.read_bytes(), original)
-            self.assertEqual(result["copies"], 2)
+            self.assertEqual(set(ligand_residues(read_document(destination))), kept)
 
     def test_missing_chain_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -150,15 +153,18 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.cif"
             source.write_text(self.CIF)
+            ligand = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(ligand, randomSeed=1)
             sdf = Path(tmp) / "ligand.sdf"
-            sdf.write_bytes(b"original SDF bytes\n")
+            Chem.MolToMolFile(ligand, str(sdf))
+            contents = sdf.read_bytes()
             result = prepare_pose(
-                dict(path=str(source), ligand_sdfs=[str(sdf.resolve())]),
+                dict(path=str(source), ligand_sdfs=[str(sdf.resolve())], smiles="CCO"),
                 Path(tmp) / "unused.cif",
             )
             self.assertEqual(result["path"], str(source.resolve()))
             self.assertEqual(result["ligand_sdfs"], [str(sdf.resolve())])
-            self.assertEqual(sdf.read_bytes(), b"original SDF bytes\n")
+            self.assertEqual(sdf.read_bytes(), contents)
 
 
 if __name__ == "__main__":

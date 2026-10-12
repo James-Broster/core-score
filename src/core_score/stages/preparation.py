@@ -12,9 +12,6 @@ def prepare_groups(groups, output):
     for group in groups:
         poses = []
         for pose in group["poses"]:
-            if pose.get("prepared"):
-                poses.append(pose)
-                continue
             record = dict(pose)
             destination = (
                 output
@@ -23,9 +20,7 @@ def prepare_groups(groups, output):
                 / "pose.cif"
             )
             try:
-                record["prepared"] = prepare_pose(
-                    pose, destination, chemistry=True, cache=cache
-                )
+                record["prepared"] = prepare_pose(pose, destination, cache=cache)
             except Exception as exc:
                 record["preparation_error"] = diagnostic(
                     "preparation",
@@ -46,9 +41,7 @@ def prepare_groups(groups, output):
                 try:
                     poses[i] = dict(
                         pose,
-                        prepared=prepare_pose(
-                            pose, Path(prepared["path"]), chemistry=True, cache=cache
-                        ),
+                        prepared=prepare_pose(pose, Path(prepared["path"]), cache=cache),
                     )
                 except Exception:
                     pass  # First preparation and its original diagnostic remain authoritative.
@@ -61,7 +54,7 @@ def prepare_groups(groups, output):
         )
     write_json(
         output / "prepared_manifest.json",
-        dict(schema="core-score.prepared.v1", groups=prepared_groups),
+        dict(groups=prepared_groups),
     )
     return prepared_groups
 

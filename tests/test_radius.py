@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from core_score.stages.utils.radius import score_with_radius_fallback, export_radius_fields
+from core_score.stages.utils.radius import score_with_radius_fallback
 
 
 class RadiusPolicyTests(unittest.TestCase):
@@ -63,16 +63,6 @@ class RadiusPolicyTests(unittest.TestCase):
         for radii in ((8, 7), (7, 7), (3,), (float("nan"),)):
             with self.assertRaises(ValueError):
                 score_with_radius_fallback(lambda r: None, radii)
-
-    def test_csv_retains_provenance(self):
-        _, m, _ = self.run_case(
-            {
-                4.0: dict(score=None, reason="target_binding_site"),
-                6.0: dict(score=1.0, reason="OK"),
-            }
-        )
-        self.assertEqual(export_radius_fields(m, 1.0), m)
-        self.assertEqual(export_radius_fields({}, 2.0)["standard_rmsd"], 2.0)
 
     def test_public_comparison_retains_original_contact_metric(self):
         from core_score.stages.utils.comparison_utils import compare_pair

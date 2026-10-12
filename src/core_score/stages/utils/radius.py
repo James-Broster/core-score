@@ -3,15 +3,6 @@
 import json
 import math
 
-RADIUS_FIELDS = [
-    "standard_rmsd",
-    "binding_site_radius_angstrom",
-    "radius_fallback_used",
-    "requires_review",
-    "standard_failure_reason",
-    "radius_attempts",
-]
-
 
 def finite_score(value):
     return value is not None and math.isfinite(float(value)) and float(value) >= 0
@@ -69,17 +60,3 @@ def score_with_radius_fallback(evaluate, fallback_radii=(6.0, 8.0)):
         radius_attempts=encode(attempts),
     )
     return selected, metadata
-
-
-def export_radius_fields(record, value, reason=""):
-    """Normalize old standard-only and new fallback-aware CSV rows."""
-    if "radius_fallback_used" in record:
-        return {field: record.get(field, "") for field in RADIUS_FIELDS}
-    return dict(
-        standard_rmsd=value,
-        binding_site_radius_angstrom=4.0 if value != "" else "",
-        radius_fallback_used=False,
-        requires_review=False,
-        standard_failure_reason=reason if value == "" else "",
-        radius_attempts="",
-    )

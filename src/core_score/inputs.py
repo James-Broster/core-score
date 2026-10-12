@@ -41,8 +41,6 @@ def load_inputs(paths=(), manifest=None, *, load_references=True, **defaults):
         base = manifest.parent
         raw = json.loads(manifest.read_text())
         if isinstance(raw, dict):
-            if raw.get("schema") == "core-score.prepared.v1":
-                return raw["groups"]
             raw = raw.get("ensembles", [raw])
         if not isinstance(raw, list) or not raw:
             raise ValueError("A CORE Score manifest must contain a non-empty ensembles array")

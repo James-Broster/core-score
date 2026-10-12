@@ -47,21 +47,6 @@ def validate_pairwise_matrix(rmsd_matrix: np.ndarray) -> None:
         raise ValueError("rmsd_matrix's off-diagonal entries are not symmetric")
 
 
-def mean_off_diagonal(sub_matrix: np.ndarray) -> float:
-    """Mean of a square matrix's off-diagonal entries only -- the one correct way to average a
-    "mean internal pairwise" quantity over k poses. Never sum the whole matrix and divide by
-    k*(k-1): that includes the k diagonal (self-comparison) entries in the sum, which is wrong
-    regardless of what they contain (0 happens not to perturb the result; NaN silently poisons it).
-    Used by core_score() itself, and by any other script computing a group's mean pairwise value
-    (e.g. mean contact agreement, mean pocket RMSD) so this bug pattern cannot recur independently.
-    """
-    k = sub_matrix.shape[0]
-    if k < 2:
-        raise ValueError("mean_off_diagonal requires at least 2 poses")
-    mask = ~np.eye(k, dtype=bool)
-    return float(sub_matrix[mask].sum() / (k * (k - 1)))
-
-
 def core_score(rmsd_matrix: np.ndarray) -> dict:
     """rmsd_matrix: (N, N) symmetric, pairwise ligand RMSD between N poses. The diagonal is never
     read (see validate_pairwise_matrix / the masked mean below) -- only off-diagonal, distinct-pose

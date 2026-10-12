@@ -11,9 +11,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_score.stages.preparation import prepare_pose
+from core_score.stages.utils.prepare_utils import prepare_pose
 from core_score.stages.utils.comparison_utils import run_ost, summarize
-from core_score.pipeline import run
+
+
+def run(groups, output, workers, options):
+    """Prepare and compare every pair without radius recovery, as the frozen fixtures expect."""
+    from core_score.stages.comparison import compare_groups
+    from core_score.stages.preparation import prepare_groups
+
+    for group in groups:
+        group.setdefault("ensemble", group["target"])
+        group.setdefault("site", "1")
+        for i, p in enumerate(group["poses"]):
+            p.setdefault("pose_id", str(i))
+            p.setdefault("ensemble", group["ensemble"])
+    prepared = prepare_groups(groups, output)
+    rows = compare_groups(
+        prepared, output, workers, ost=options.get("ost", "ost"),
+        chemlib=options.get("chemlib"), timeout=options.get("timeout"), radius_fallback=False
+    )
+    return len(rows)
 
 
 def same_number(test, actual, expected):

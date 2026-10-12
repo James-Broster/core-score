@@ -74,19 +74,3 @@ def execute(
         from core_score.stages.plotting import plot_results
         plot_results(output, output / "figures")
     return summary
-
-
-def run(groups, output, workers, options):
-    """Compatibility entry point for frozen original OST regression fixtures."""
-    for group in groups:
-        group.setdefault("ensemble", group["target"])
-        group.setdefault("site", "1")
-        for i, p in enumerate(group["poses"]):
-            p.setdefault("pose_id", str(i))
-            p.setdefault("ensemble", group["ensemble"])
-    prepared = prepare_groups(groups, output)
-    rows = compare_groups(
-        prepared, output, workers, ost=options.get("ost", "ost"),
-        chemlib=options.get("chemlib"), timeout=options.get("timeout"), radius_fallback=False
-    )
-    return len(rows)

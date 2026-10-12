@@ -23,7 +23,7 @@ def prepare_reference_tasks(groups, output, *, ost="ost", chemlib=None, timeout=
                 / fingerprint(group["ensemble"])[:20]
                 / "reference.cif"
             )
-            prepared = prepare_pose(reference, dest, chemistry=True)
+            prepared = prepare_pose(reference, dest)
             prepared = probe_prepared(prepared, ost=ost, chemlib=chemlib, timeout=timeout)
         except Exception as exc:
             records.extend(

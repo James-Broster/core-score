@@ -3,7 +3,6 @@
 from collections import Counter
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import rdDetermineBonds
 from rdkit.Geometry import Point3D
 from core_score.stages.utils.preparation.cif import ligand_residues
 
@@ -23,7 +22,7 @@ def heavy_atoms(rows):
     return [r for r in rows if r["type_symbol"].capitalize() not in ("H", "D")]
 
 
-def choose_ligands(doc, pose, require_identical=False):
+def choose_ligands(doc, pose):
     candidates = ligand_residues(doc)
     selected = candidates
     if pose.get("ligand_chains"):
@@ -69,7 +68,7 @@ def choose_ligands(doc, pose, require_identical=False):
         )
         for rows in selected.values()
     }
-    if require_identical and len(compositions) > 1:
+    if len(compositions) > 1:
         raise ValueError(
             "Selected residues contain different ligand compositions; give each ligand identity its own ensemble"
         )
