@@ -117,7 +117,7 @@ generated structures, not an importer for a prediction model's own input JSON.
 | `--no-radius-fallback` | Disable the 4 → 6 → 8 Å binding-site recovery. |
 | `--skip-posebusters` | Do not run PoseBusters. CORE is unaffected. |
 | `--evaluate-reference` | Also compare predictions with supplied reference structures. |
-| `--plot` | Also save `core_scores.png`, a histogram of the CORE Scores. Needs matplotlib. |
+| `--plot` | Also save `core_scores.png`, complexes against CORE Score. Needs matplotlib. |
 | `--reference FILE` | Reference for structure files given directly (JSON sets its own). |
 
 ## PoseBusters
@@ -216,8 +216,9 @@ complexes last.
 
 A blank is unknown, never a pass or a failure.
 
-**`core_scores.png`**, with `--plot`, is a histogram of the CORE Scores, one PNG per T,
-with a dashed line at each cutoff. It needs matplotlib, from `pip install -e '.[plot]'`.
+**`core_scores.png`**, with `--plot`, is a scatter plot of how many complexes fall in each
+band of CORE Score, one PNG per T, with a dashed line at each cutoff. It needs matplotlib,
+from `pip install -e '.[plot]'`.
 
 **`details/`** holds the evidence behind those files.
 

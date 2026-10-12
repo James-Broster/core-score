@@ -564,7 +564,7 @@ run carries on.
 ### `stages/plotting.py`
 | Function | Does |
 | --- | --- |
-| `plot_core_scores(rows, output, cutoffs, bin_width)` | `core_scores.png` per T: a histogram of the scores, with a line at each cutoff. Imports matplotlib only when called. |
+| `plot_core_scores(rows, output, cutoffs, bin_width)` | `core_scores.png` per T: complexes against CORE Score, with a line at each cutoff. Imports matplotlib only when called. |
 | `title(scores, threshold, cutoffs)` | The heading, and how many complexes are at or above each cutoff. |
 
 ### `structure/cif.py`
