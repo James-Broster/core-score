@@ -14,66 +14,48 @@ def template_mol(smiles):
     return Chem.RemoveAllHs(mol)
 
 
-def formula(mol):
-    return Counter(a.GetSymbol() for a in Chem.RemoveAllHs(mol).GetAtoms())
-
-
 def heavy_atoms(rows):
     return [r for r in rows if r["type_symbol"].capitalize() not in ("H", "D")]
 
 
+def atom_name(row):
+    return row.get("label_atom_id", row.get("auth_atom_id"))
+
+
+def composition(rows):
+    """Heavy-atom element counts of a residue's atom records."""
+    return Counter(r["type_symbol"].capitalize() for r in heavy_atoms(rows))
+
+
 def choose_ligands(doc, pose):
+    """Ligand residues picked out by the pose's chains, residue number and SMILES composition.
+    With no selector at all, the structure must hold exactly one ligand residue."""
     candidates = ligand_residues(doc)
     selected = candidates
     if pose.get("ligand_chains"):
-        chains = set(pose["ligand_chains"])
-        present = {key[0] for key in candidates}
-        if not chains <= present:
-            raise ValueError(
-                f"Ligand chains absent: {sorted(chains - present)}; candidates: {list(candidates)}"
-            )
-        selected = {k: v for k, v in selected.items() if k[0] in chains}
+        missing = set(pose["ligand_chains"]) - {key[0] for key in candidates}
+        if missing:
+            raise ValueError(f"Ligand chains absent: {sorted(missing)}; candidates: {list(candidates)}")
+        selected = {k: v for k, v in selected.items() if k[0] in pose["ligand_chains"]}
     if pose.get("ligand_residue"):
-        selected = {
-            k: v for k, v in selected.items() if k[1] == str(pose["ligand_residue"])
-        }
+        selected = {k: v for k, v in selected.items() if k[1] == str(pose["ligand_residue"])}
     if pose.get("smiles"):
-        expected = formula(template_mol(pose["smiles"]))
-        selected = {
-            k: v
-            for k, v in selected.items()
-            if Counter(r["type_symbol"].capitalize() for r in heavy_atoms(v))
-            == expected
-        }
-    explicit = any(pose.get(k) for k in ("ligand_chains", "ligand_residue", "smiles"))
-    if not explicit and len(selected) != 1:
+        expected = Counter(a.GetSymbol() for a in template_mol(pose["smiles"]).GetAtoms())
+        selected = {k: v for k, v in selected.items() if composition(v) == expected}
+    if not any(pose.get(k) for k in ("ligand_chains", "ligand_residue", "smiles")) and len(selected) != 1:
         raise ValueError(
             f"Ambiguous ligand selection; candidates: {list(candidates)}. Supply ligand selection or SMILES."
         )
     if not selected:
         raise ValueError(f"Selected ligand absent; candidates: {list(candidates)}")
-    compositions = {
-        tuple(
-            sorted(
-                Counter(
-                    r["type_symbol"].capitalize() for r in heavy_atoms(rows)
-                ).items()
-            )
-        )
-        for rows in selected.values()
-    }
-    if len(compositions) > 1:
+    if len({tuple(sorted(composition(rows).items())) for rows in selected.values()}) > 1:
         raise ValueError(
             "Selected residues contain different ligand compositions; give each ligand identity its own ensemble"
         )
     for key, rows in selected.items():
-        names = [
-            r.get("label_atom_id", r.get("auth_atom_id")) for r in heavy_atoms(rows)
-        ]
+        names = [atom_name(r) for r in heavy_atoms(rows)]
         if len(names) != len(set(names)):
-            raise ValueError(
-                f"Alternate conformers or duplicate ligand atom names in {key}; supply one conformer"
-            )
+            raise ValueError(f"Alternate conformers or duplicate ligand atom names in {key}; supply one conformer")
     return selected
 
 
@@ -106,7 +88,7 @@ def identity(mol):
 
 def native_graph(doc, rows):
     """Use CIF bond tables or AF3's native SMILES/name bijection when available."""
-    names = [r.get("label_atom_id", r.get("auth_atom_id")) for r in heavy_atoms(rows)]
+    names = [atom_name(r) for r in heavy_atoms(rows)]
     comp = rows[0].get("label_comp_id", rows[0].get("auth_comp_id"))
     block = doc.sole_block()
     table = block.find_mmcif_category("_chem_comp_bond.")

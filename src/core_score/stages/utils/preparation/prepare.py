@@ -53,8 +53,7 @@ def from_structure(pose, doc, destination, cache):
     copies = []
     for i, (key, rows) in enumerate(selected.items()):
         heavy = heavy_atoms(rows)
-        cache_key = (pose.get("ensemble"), pose.get("smiles"), tuple(sorted(r.get("label_atom_id", "") for r in heavy)))
-        ost_mol, pb_mol, provenance, pb_error = make_ligand(doc, rows, pose.get("smiles"), cache, cache_key)
+        ost_mol, pb_mol, provenance, pb_error = make_ligand(doc, rows, pose.get("smiles"), cache, pose["ensemble"])
         ost_sdf = destination.with_name(f"{destination.stem}.copy{i}.ost.sdf")
         write_molecule(ost_mol, ost_sdf)
         pb_sdf = None

@@ -62,8 +62,7 @@ def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
         raise ValueError("Synthetic sanitization failure")
     monkeypatch.setattr(sdf.Chem, "SanitizeMol", reject)
     cache = {}
-    ost, pb, provenance, error = sdf.make_ligand(
-        gemmi.cif.Document(), rows, "CCO", cache, ("ensemble", "CCO"))
+    ost, pb, provenance, error = sdf.make_ligand(gemmi.cif.Document(), rows, "CCO", cache, "ensemble")
     assert ost is not None
     assert pb is None
     assert error == "Synthetic sanitization failure"
@@ -94,21 +93,20 @@ def test_peer_graph_recovery_keeps_recipient_coordinates_and_cache_scope(monkeyp
     rows = [dict(type_symbol=a.GetSymbol(), label_atom_id=f"a{i}",
                  Cartn_x=str(x), Cartn_y=str(y), Cartn_z=str(z))
             for i, (a, (x, y, z)) in enumerate(zip(donor.GetAtoms(), positions))]
-    key = ("ensemble", "CCO", ("a0", "a1", "a2"))
     cache = {}
     doc = gemmi.cif.Document()
     monkeypatch.setattr(sdf, "native_graph", lambda *args: (None, None))
-    assert sdf.make_ligand(doc, rows, "CCO", cache, key)[3]
+    assert sdf.make_ligand(doc, rows, "CCO", cache, "ensemble")[3]
 
     donor_rows = [dict(row, Cartn_x=str(x), Cartn_y=str(y), Cartn_z=str(z))
                   for row, (x, y, z) in zip(rows, donor.GetConformer().GetPositions())]
     monkeypatch.setattr(sdf, "native_graph", lambda *args: (donor, "native_cif_bonds"))
-    assert sdf.make_ligand(doc, donor_rows, "CCO", cache, key)[3] is None
+    assert sdf.make_ligand(doc, donor_rows, "CCO", cache, "ensemble")[3] is None
     monkeypatch.setattr(sdf, "native_graph", lambda *args: (None, None))
-    _, molecule, provenance, error = sdf.make_ligand(doc, rows, "CCO", cache, key)
+    _, molecule, provenance, error = sdf.make_ligand(doc, rows, "CCO", cache, "ensemble")
     assert error is None
     assert provenance == "same_ensemble_atom_name_graph"
     np.testing.assert_array_equal(molecule.GetConformer().GetPositions(), positions)
     # A different ensemble or different declared SMILES cannot borrow this entry.
-    assert sdf.make_ligand(doc, rows, "CCO", cache, ("other", *key[1:]))[3]
-    assert sdf.make_ligand(doc, rows, "COC", cache, (key[0], "COC", key[2]))[3]
+    assert sdf.make_ligand(doc, rows, "CCO", cache, "other")[3]
+    assert sdf.make_ligand(doc, rows, "COC", cache, "ensemble")[3]
