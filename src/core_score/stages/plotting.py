@@ -24,6 +24,7 @@ def plot_core_scores(rows, output, bin_width=0.02):
         axes.set_title(f"{len(scores)} complexes, threshold {threshold:g} Å")
         axes.set_xlim(-0.02, 1.02)
         axes.set_ylim(0, max(y, default=1) + 1)
+        axes.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))  # counts, not halves
         figure.tight_layout()
         figure.savefig(path, dpi=200)
         plt.close(figure)
