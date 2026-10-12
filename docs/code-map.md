@@ -566,7 +566,7 @@ run carries on.
 | --- | --- |
 | `plot_core_scores(rows, output, cutoffs)` | `core_scores.png` per T: a dot per complex, ordered by CORE Score, with a line at each cutoff. Imports matplotlib only when called. |
 | `style(matplotlib)` | The figure's type and hairline axes, using the first of `FONTS` installed. |
-| `draw(axes, scores, threshold, cutoffs)` | The dots, the tint under them, the cutoff lines and the labels. |
+| `draw(axes, scores, threshold, cutoffs)` | The dots, the cutoff lines and their labels. |
 | `dot_size(count)` | Smaller dots for bigger benchmarks. |
 
 ### `structure/cif.py`

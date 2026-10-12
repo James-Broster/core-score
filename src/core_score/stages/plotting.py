@@ -6,7 +6,7 @@ from pathlib import Path
 #: nearest humanist sans faces on other machines, then whatever matplotlib has.
 FONTS = ("Optima", "Optima nova LT Pro", "Gill Sans", "Gill Sans MT", "Candara",
          "Trebuchet MS", "Nimbus Sans", "DejaVu Sans")
-INK, MUTED, LINE, DOT, FILL = "#16232b", "#5c6b73", "#c8ccce", "#2f6f8f", "#dce9f0"
+INK, MUTED, LINE, DOT = "#16232b", "#5c6b73", "#c8ccce", "#2f6f8f"
 
 
 def plot_core_scores(rows, output, cutoffs=()):
@@ -52,8 +52,6 @@ def style(matplotlib):
 
 def draw(axes, scores, threshold, cutoffs):
     count = len(scores)
-    if count >= 50:  # a tint under the curve; with a handful of complexes the dots stand alone
-        axes.fill_between(range(1, count + 1), scores, color=FILL, linewidth=0, zorder=2)
     axes.scatter(range(1, count + 1), scores, s=dot_size(count), color=DOT,
                  alpha=0.75 if count > 500 else 1.0, linewidths=0, zorder=4)
     for cutoff in cutoffs:
