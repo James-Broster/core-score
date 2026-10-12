@@ -113,8 +113,8 @@ def test_posebusters_records_every_pose(tmp_path):
     assert json.loads((tmp_path / "posebusters.json").read_text()) == answers
 
 
-def test_each_check_combines_the_copies_and_unknown_stays_blank():
-    from core_score.stages.posebusters import check_pose, summary_row
+def test_each_check_combines_the_copies_and_unknown_never_passes():
+    from core_score.stages.posebusters import check_pose
 
     pose = dict(ensemble="g", pose_id="a", prepared=dict(receptor="r.pdb", copy_records=["c0", "c1"]))
     copies = [dict(copy_id="0", pb_valid=False, checks=dict(bond_lengths=True, internal_energy=False)),
@@ -122,10 +122,9 @@ def test_each_check_combines_the_copies_and_unknown_stays_blank():
     with patch("core_score.stages.posebusters.check_copy", side_effect=copies):
         record = check_pose(None, ["bond_lengths", "internal_energy"], pose)
     assert record["pb_valid"] is False
-    assert summary_row(record) == dict(ensemble="g", pose_id="a", pb_valid=False, failed_checks="internal_energy",
-                                       bond_lengths=None, internal_energy=False, error="ValueError: x")
+    assert record["checks"] == dict(bond_lengths=None, internal_energy=False)
     unprepared = check_pose(None, ["bond_lengths"], dict(ensemble="g", pose_id="b", error="bad input"))
-    assert summary_row(unprepared)["bond_lengths"] is None
+    assert unprepared["checks"] == dict(bond_lengths=None)
 
 
 def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
@@ -198,7 +197,7 @@ def report_inputs():
 
 
 def test_core_table_has_one_row_per_complex_best_first():
-    from core_score.stages.report import core_table, summarize_cutoffs
+    from core_score.stages.report import core_table
 
     groups, scores, validity, labels = report_inputs()
     rows = core_table(groups, scores, validity, labels, [0.5, 0.7], ranked=True)
@@ -207,12 +206,9 @@ def test_core_table_has_one_row_per_complex_best_first():
     g = rows[0]
     assert (g["valid_pose_count"], g["top_pose"], g["top_pose_correct"], g["fraction_correct"]) == (1, "a", True, 0.5)
     assert rows[2]["note"] == "ValueError: x"
-    summary = summarize_cutoffs(rows, [0.5, 0.7], judged=True)
-    assert [(s["core_cutoff"], s["complexes"], s["above"], s["below"], s["accuracy_above"], s["accuracy_below"])
-            for s in summary] == [(0.5, 2, 2, 0, 0.5, None), (0.7, 2, 1, 1, 1.0, 0.0)]
 
 
-def test_report_files_only_have_the_columns_that_apply(tmp_path):
+def test_report_is_one_file_with_only_the_columns_that_apply(tmp_path):
     import csv
     from core_score.stages.report import write_report
 
@@ -223,9 +219,7 @@ def test_report_files_only_have_the_columns_that_apply(tmp_path):
     write_report(groups, scores, None, [], tmp_path, cutoffs=(0.5,))
     header = next(csv.reader((tmp_path / "core_scores.csv").open()))
     assert header == ["ensemble", "site", "threshold_angstrom", "core_score", "above_0.5", "pose_count", "note"]
-    assert (tmp_path / "cutoff_summary.csv").exists()
-    assert not (tmp_path / "posebusters.csv").exists()
-    assert not (tmp_path / "reference_evaluation.csv").exists()
+    assert [path.name for path in tmp_path.iterdir()] == ["core_scores.csv"]
 
 
 def test_confidence_is_given_for_every_pose_or_none(tmp_path):

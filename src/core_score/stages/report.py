@@ -1,10 +1,9 @@
-"""Write the files a user reads: every complex's CORE Score with its verdict at each cutoff,
-a summary per cutoff, PoseBusters validity for every pose and, with references, every
-pose's result against its reference. Everything else is in details/."""
+"""Write core_scores.csv, the file a user reads: every complex's CORE Score, whether it is
+above each cutoff, its top-ranked pose and, with references, how many of its poses are
+correct. Everything else is in details/."""
 
 from core_score.results import write_csv
 from core_score.stages.evaluation import correct_column
-from core_score.stages.posebusters import summary_row
 
 
 def write_report(groups, scores, pb_records, labels, output, cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9)):
@@ -14,12 +13,6 @@ def write_report(groups, scores, pb_records, labels, output, cutoffs=(0.5, 0.6, 
     ranked = any("confidence" in group["poses"][0] for group in groups)
     rows = core_table(groups, scores, validity, labels, cutoffs, ranked)
     write_csv(output / "core_scores.csv", rows)
-    judged = bool(labels) and ranked and validity is not None  # top poses exist and can be checked
-    write_csv(output / "cutoff_summary.csv", summarize_cutoffs(rows, cutoffs, judged))
-    if pb_records is not None:
-        write_csv(output / "posebusters.csv", [summary_row(record) for record in pb_records])
-    if labels:
-        write_csv(output / "reference_evaluation.csv", labels)
     return rows
 
 
@@ -75,24 +68,3 @@ def core_table(groups, scores, validity, labels, cutoffs, ranked):
     rows.sort(key=lambda r: (r["threshold_angstrom"], r["core_score"] is None, -(r["core_score"] or 0)))
     return rows
 
-
-def summarize_cutoffs(rows, cutoffs, judged=False):
-    """Per threshold and cutoff: how many complexes are above and below it and, with references
-    and confidences, how often the top pose is correct on each side."""
-    summaries = []
-    for threshold in dict.fromkeys(row["threshold_angstrom"] for row in rows):
-        scored = [row for row in rows if row["threshold_angstrom"] == threshold and row["core_score"] is not None]
-        for cutoff in cutoffs:
-            above = [row for row in scored if row[f"above_{cutoff:g}"]]
-            below = [row for row in scored if not row[f"above_{cutoff:g}"]]
-            summary = dict(threshold_angstrom=threshold, core_cutoff=cutoff, complexes=len(scored),
-                           above=len(above), below=len(below),
-                           fraction_above=len(above) / len(scored) if scored else None)
-            if judged:
-                for side, side_rows in (("above", above), ("below", below)):
-                    known = [row["top_pose_correct"] for row in side_rows if row["top_pose_correct"] is not None]
-                    summary[f"top_poses_known_{side}"] = len(known)
-                    summary[f"top_poses_correct_{side}"] = sum(known)
-                    summary[f"accuracy_{side}"] = sum(known) / len(known) if known else None
-            summaries.append(summary)
-    return summaries

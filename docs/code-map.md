@@ -7,8 +7,8 @@ How a run moves through `core_score`. Every diagram reads the same way:
 - The rounded boxes between rungs are what's handed to the next step.
 - Dashed boxes are files written. Amber functions call OpenStructure through `ost.py`.
 
-`pipeline.execute()` runs the rungs of the first diagram in order. The result files go
-in the output folder and everything behind them in `details/`.
+`pipeline.execute()` runs the rungs of the first diagram in order. The result file goes
+in the output folder and everything behind it in `details/`.
 
 ## The whole run
 
@@ -61,13 +61,13 @@ flowchart TB
 
     subgraph R7["7 · evaluation.py"]
         direction LR
-        i1["evaluate_groups()<br/>with --evaluate-reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json"/]:::file
+        i1["evaluate_groups()<br/>with --evaluate-reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json<br/>reference_evaluation.csv"/]:::file
     end
     d7(["CORE and reference labels"]):::data
 
     subgraph R8["8 · report.py"]
         direction LR
-        j1["write_report()"]:::fn --> j2["core_table()"]:::fn --> j3["top_pose()"]:::fn --> j4["summarize_cutoffs()"]:::fn --> j5[/"core_scores.csv · cutoff_summary.csv<br/>posebusters.csv · reference_evaluation.csv"/]:::file
+        j1["write_report()"]:::fn --> j2["core_table()"]:::fn --> j3["top_pose()"]:::fn --> j5[/"core_scores.csv"/]:::file
     end
 
     subgraph R9["9 · pipeline.py"]
@@ -370,7 +370,7 @@ flowchart TB
 
     subgraph E3["evaluation.py · label"]
         direction LR
-        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T"]:::fn
+        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T"]:::fn --> c4[/"reference_evaluation.csv"/]:::file
     end
     d3(["one label row per pose"]):::data
 
@@ -401,21 +401,10 @@ flowchart TB
         direction LR
         b1["core_table()"]:::fn --> b2["top_pose()<br/>valid pose with highest confidence"]:::fn --> b3["above each cutoff<br/>CORE ≥ cutoff"]:::fn --> b4[/"core_scores.csv"/]:::file
     end
-    d2(["one row per complex and T"]):::data
 
-    subgraph D3["report.py · cutoffs"]
-        direction LR
-        c1["summarize_cutoffs()<br/>above and below each cutoff"]:::fn --> c2[/"cutoff_summary.csv"/]:::file
-    end
+    start --> D1 --> d1 --> D2
 
-    subgraph D4["report.py · poses"]
-        direction LR
-        e1["summary_row()<br/>each pose"]:::fn --> e2[/"posebusters.csv"/]:::file --> e3["reference labels<br/>with --evaluate-reference"]:::fn --> e4[/"reference_evaluation.csv"/]:::file
-    end
-
-    start --> D1 --> d1 --> D2 --> d2 --> D3 --> D4
-
-    class D1,D2,D3,D4 stage
+    class D1,D2 stage
 ```
 
 ## Every check, and what happens when it fails
@@ -516,7 +505,6 @@ run carries on.
 | `aggregate(values)` | False if any False, None if any unknown, else True. |
 | `check_pose(buster, checks, pose)` | Validity of one pose, and each check's result, across its copies. |
 | `check_copy(buster, checks, copy, receptor)` | Runs PoseBusters on one copy. |
-| `summary_row(record)` | One row of `posebusters.csv`. |
 
 ### `stages/site_assignment.py`
 | Function | Does |
@@ -548,17 +536,16 @@ run carries on.
 ### `stages/evaluation.py`
 | Function | Does |
 | --- | --- |
-| `evaluate_groups(groups, output, thresholds, ...)` | Prepares each reference, compares every pose with it, writes `reference_details.json`. Returns one label row per pose, in input order. |
+| `evaluate_groups(groups, output, thresholds, ...)` | Prepares each reference, compares every pose with it, writes `reference_details.json` and `reference_evaluation.csv`. Returns one label row per pose, in input order. |
 | `label_reference_results(records, thresholds)` | Correct means RMSD < T. Failed or ambiguous is unknown. |
 | `correct_column(threshold)` | The column name, such as `rmsd_below_2A`. |
 
 ### `stages/report.py`
 | Function | Does |
 | --- | --- |
-| `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv`, `cutoff_summary.csv`, `posebusters.csv` and `reference_evaluation.csv`. |
+| `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv`. |
 | `top_pose(group, validity)` | The PoseBusters-valid pose with the highest confidence, or the reason there is none. |
 | `core_table(...)` | One row per complex and T: CORE, above each cutoff, pose counts, the top pose, and reference results. |
-| `summarize_cutoffs(rows, cutoffs, judged)` | Per T and cutoff: how many complexes are above and below, and top-pose accuracy on each side. |
 
 ### `structure/cif.py`
 | Function | Does |

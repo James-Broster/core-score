@@ -179,16 +179,12 @@ completed, 1 when anything is incomplete and 2 for invalid input.
 
 ## Outputs
 
-A complex is one ensemble, or one ligand site of a multi-copy ensemble. The four files
-at the top are the results. Everything else is in `details/`.
+A complex is one ensemble, or one ligand site of a multi-copy ensemble.
 
 ```text
 results/
-  core_scores.csv            CORE for every complex
-  cutoff_summary.csv         how many complexes are above and below each cutoff
-  posebusters.csv            PoseBusters validity for every pose
-  reference_evaluation.csv   every pose against its reference (--evaluate-reference)
-  details/
+  core_scores.csv     CORE for every complex
+  details/            the evidence behind it
 ```
 
 **`core_scores.csv`** has one row per complex and T, highest CORE first and unscored
@@ -204,27 +200,14 @@ complexes last.
 | `fraction_correct`, `top_pose_correct` | With references: the fraction of poses below T, and whether the top pose is. |
 | `note` | Why CORE or the top pose is missing. |
 
-**`cutoff_summary.csv`** has one row per T and cutoff: `complexes` scored, how many are
-`above` and `below`, and `fraction_above`. When there are top poses and references, it
-adds, for each side of the cutoff, how many top poses have a known result
-(`top_poses_known_above`), how many are correct (`top_poses_correct_above`) and the
-accuracy (`accuracy_above`), and the same for `below`. Adding cutoff 0 gives the
-accept-everything baseline.
-
-**`posebusters.csv`** has one row per pose: `pb_valid`, `failed_checks` by name, one
-column per dock check (True, False, or blank when unknown), and `error`.
-
-**`reference_evaluation.csv`** has one row per pose: ligand `rmsd` and `lddt_pli` to the
-reference, `rmsd_below_2A` (one column per T), `radius_fallback_used`, and `error`.
-RMSD and labels are blank when the comparison failed.
-
 **`details/`** holds the evidence behind those files.
 
 | File | Contents |
 | --- | --- |
 | `pairs.csv` | Ligand RMSD, pocket backbone RMSD, pocket lDDT and lDDT-PLI per pair, with radius recovery fields |
 | `ligand_details.jsonl` | Raw OST results, commands and output for every pair |
-| `posebusters.json` | Every raw PoseBusters result per pose and copy |
+| `posebusters.json` | PoseBusters validity, every dock check and every raw result per pose and copy |
+| `reference_evaluation.csv` | Each pose's RMSD and lDDT-PLI to its reference and whether it is below each T |
 | `reference_details.json`, `references/` | Raw reference comparisons and prepared references |
 | `prepared_manifest.json`, `prepared/` | Prepared structures, SDFs and receptors |
 | `sites.json` | Site assignments for multi-copy ensembles |
@@ -252,7 +235,7 @@ src/core_score/
     comparison.py         every pair, with binding-site recovery
     scoring.py            RMSD matrix and CORE per threshold
     evaluation.py         optional reference comparison
-    report.py             the result files: CORE, cutoffs, top poses
+    report.py             core_scores.csv: CORE, cutoffs, top poses
   structure/
     cif.py                read, filter and write structure records
     chemistry.py          ligand selection and chemical identity

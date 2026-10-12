@@ -63,16 +63,3 @@ def check_copy(buster, checks, copy, receptor):
     results = {name: tests.get(name) if isinstance(tests.get(name), bool) else None for name in checks}
     return dict(record, pb_valid=aggregate(results.values()), checks=results, tests=tests)
 
-
-def summary_row(record):
-    """One row of posebusters.csv: validity, the failed checks by name, every check's result
-    (blank when unknown), and the first error if any."""
-    copies = record.get("copies", [])
-    return dict(
-        ensemble=record["ensemble"],
-        pose_id=record["pose_id"],
-        pb_valid=record["pb_valid"],
-        failed_checks="; ".join(name for name, passed in record["checks"].items() if passed is False),
-        **record["checks"],
-        error=record.get("error") or next((copy["error"] for copy in copies if copy.get("error")), None),
-    )
