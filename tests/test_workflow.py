@@ -242,12 +242,10 @@ def test_poses_table_joins_confidence_validity_and_reference():
     assert rows[3]["note"] == "ValueError: no ligand"
 
 
-def test_plot_titles_count_the_complexes_above_each_cutoff():
-    from core_score.stages.plotting import title
+def test_plot_dots_shrink_as_the_benchmark_grows():
+    from core_score.stages.plotting import dot_size
 
-    assert title([0.95, 0.85, 0.4], 2.0, (0.8, 0.9)) == (
-        "n = 3 complexes \u00b7 threshold 2 \u00c5\n2 at or above 0.8  \u00b7  1 at or above 0.9")
-    assert title([0.5], 1.0, ()) == "n = 1 complexes \u00b7 threshold 1 \u00c5"
+    assert dot_size(6) > dot_size(900) > dot_size(7000)
 
 
 def test_plot_writes_one_png_per_threshold(tmp_path):

@@ -117,7 +117,7 @@ generated structures, not an importer for a prediction model's own input JSON.
 | `--no-radius-fallback` | Disable the 4 → 6 → 8 Å binding-site recovery. |
 | `--skip-posebusters` | Do not run PoseBusters. CORE is unaffected. |
 | `--evaluate-reference` | Also compare predictions with supplied reference structures. |
-| `--plot` | Also save `core_scores.png`, complexes against CORE Score. Needs matplotlib. |
+| `--plot` | Also save `core_scores.png`, a dot per complex ordered by CORE Score. Needs matplotlib. |
 | `--reference FILE` | Reference for structure files given directly (JSON sets its own). |
 
 ## PoseBusters
@@ -186,7 +186,7 @@ A complex is one ensemble, or one ligand site of a multi-copy ensemble.
 results/
   core_scores.csv     one row per complex
   poses.csv           one row per pose
-  core_scores.png     how many complexes have each CORE Score, with --plot
+  core_scores.png     every complex ordered by CORE Score, with --plot
   details/            the evidence behind them
 ```
 
@@ -216,9 +216,9 @@ complexes last.
 
 A blank is unknown, never a pass or a failure.
 
-**`core_scores.png`**, with `--plot`, is a scatter plot of how many complexes fall in each
-band of CORE Score, one PNG per T, with a dashed line at each cutoff. It needs matplotlib,
-from `pip install -e '.[plot]'`.
+**`core_scores.png`**, with `--plot`, is a dot per complex, ordered by CORE Score, one PNG
+per T, with a dashed line at each cutoff saying how many complexes reach it. It needs
+matplotlib, from `pip install -e '.[plot]'`.
 
 **`details/`** holds the evidence behind those files.
 
