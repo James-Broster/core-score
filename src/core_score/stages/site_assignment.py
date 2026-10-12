@@ -8,15 +8,10 @@ def prepare_site_groups(groups, output, *, timeout=None):
     """One ensemble per ligand site. Ensembles with one copy pass through as site 1."""
     split, reports = [], []
     for group in groups:
-        if group.get("error"):
-            split.append(dict(group, site="unresolved"))
-            continue
         try:
             failed = [pose["pose_id"] for pose in group["poses"] if pose.get("error")]
             if failed:
                 raise ValueError(f"Poses failed preparation: {failed}; see prepared_manifest.json")
-            if not group["poses"]:
-                raise ValueError("No poses left after PoseBusters filtering")
             counts = {pose["prepared"]["copies"] for pose in group["poses"]}
             if len(counts) != 1:
                 # Copies can only be matched to sites when every pose has the same number.

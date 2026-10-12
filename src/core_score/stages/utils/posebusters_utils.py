@@ -53,3 +53,15 @@ def check_copy(buster, checks, copy, receptor):
         unknown_checks=[name for name, passed in results.items() if passed is None],
         tests=tests,
     )
+
+
+def summary_row(record):
+    """One CSV row per pose: validity, every failed check, and the first error if any."""
+    copies = record.get("copies", [])
+    return dict(
+        ensemble=record["ensemble"],
+        pose_id=record["pose_id"],
+        pb_valid=record["pb_valid"],
+        failed_checks=sorted({name for copy in copies for name in copy.get("failed_checks", [])}),
+        error=record.get("error") or next((copy["error"] for copy in copies if copy.get("error")), None),
+    )

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pytest
 from core_score.pipeline import execute
 from core_score.inputs import load_inputs
 
@@ -74,21 +75,22 @@ def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
             rows = list(csv.DictReader(handle))
         assert summary["score_count"] == 1
         assert summary["completed_comparisons"] == 1
-        assert scores[0]["status"] == "complete"
+        # Two poses: each one's closest other pose is the other, so CORE = 1 - RMSD / T.
+        assert scores[0]["core_score"] == pytest.approx(1 - expected["rmsd"] / 2)
         for field, value in expected.items():
             assert (float(rows[0][field]) if isinstance(value, (int, float)) else rows[0][field]) == value
         outputs.append(rows)
     assert outputs[0] == outputs[1]
 
 
-def test_pb_runs_and_excludes_invalid_real_poses(tmp_path, monkeypatch):
+def test_pb_records_invalid_real_poses_and_core_still_uses_them(tmp_path, monkeypatch):
     options(monkeypatch)
     summary = execute(groups(), tmp_path / "pb")
     pb = json.loads((tmp_path / "pb/posebusters.json").read_text())
     assert len(pb) == 2
     assert all(p["pb_valid"] is False for p in pb)
     scores = json.loads((tmp_path / "pb/scores.json").read_text())
-    assert summary["comparison_count"] == 0
-    assert summary["score_count"] == 0
-    assert scores[0]["status"] == "incomplete"
-    assert scores[0]["pose_count"] == 0
+    assert summary["comparison_count"] == 1
+    assert summary["score_count"] == 1
+    assert scores[0]["pose_count"] == 2
+    assert scores[0]["core_score"] is not None

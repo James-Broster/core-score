@@ -45,7 +45,8 @@ def parser():
                    help="Also compare predictions against supplied ground truth")
     p.add_argument("--reference", type=Path, help="Ground-truth structure; may instead be set in JSON")
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
-                   help="Reference success thresholds in angstroms; uses RMSD < threshold (default: 2)")
+                   help="Thresholds T in angstroms: CORE is calculated at each, and reference "
+                        "success means RMSD < T (default: 2)")
     p.add_argument("--plots", action="store_true", help="Generate plots after the analysis")
     return p
 

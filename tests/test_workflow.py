@@ -2,40 +2,45 @@ import json
 from unittest.mock import Mock, patch
 import numpy as np
 import pytest
-from core_score.stages.scoring import core_score
+from core_score import core_score
+from core_score.stages.scoring import score_groups
 from core_score.stages.utils.score_utils import build_matrix
 from core_score.cli import parser
 from core_score.stages.utils.posebusters_utils import aggregate
-from core_score.stages.posebusters import run_pb
+from core_score.stages.posebusters import run_posebusters
 from core_score.inputs import load_inputs
 
 
 def test_core_known_two_pose_score_and_diagonal_independence():
     for diag in (0.0, float("nan"), 99.0):
-        result = core_score([[diag, 1.0], [1.0, diag]])
-        assert result["S"] == 0.5
-        assert result["group_size"] == 2
+        assert core_score([[diag, 1.0], [1.0, diag]]) == 0.5
 
 
-def test_core_small_tight_group_wins():
-    result = core_score([[0, 0.1, 10], [0.1, 0, 10], [10, 10, 0]])
-    assert result["group_members"] == [0, 1]
-    assert result["D"] == pytest.approx(0.1 / np.sqrt(2 / 3))
+def test_core_uses_each_pose_closest_other_pose_capped_at_threshold():
+    matrix = [[0, 0.1, 10], [0.1, 0, 10], [10, 10, 0]]
+    # Penalties 0.1/T, 0.1/T and 1 (no other pose within T).
+    assert core_score(matrix) == pytest.approx(1 - (0.05 + 0.05 + 1) / 3)
+    assert core_score(matrix, threshold=1.0) == pytest.approx(1 - (0.1 + 0.1 + 1) / 3)
 
 
-@pytest.mark.parametrize(
-    "matrix",
-    [
-        [[0, 1]],
-        [[0, float("nan")], [float("nan"), 0]],
-        [[0, -1], [-1, 0]],
-        [[0, 1], [2, 0]],
-        [[0]],
-    ],
-)
-def test_core_rejects_invalid_matrices(matrix):
+def test_core_endpoints():
+    assert core_score(np.zeros((4, 4))) == 1.0
+    assert core_score(np.full((3, 3), 2.0)) == 0.0  # Exactly T apart counts as unsupported.
     with pytest.raises(ValueError):
-        core_score(matrix)
+        core_score([[0]])
+
+
+def test_scores_at_each_threshold_and_never_from_incomplete_matrices(tmp_path):
+    poses = [dict(pose_id=p) for p in "abc"]
+    rows = [dict(ensemble="g", site="1", pose_i=a, pose_j=b, rmsd=r, n_assigned=1, error="")
+            for a, b, r in [("a", "b", 0.5), ("a", "c", 3.0), ("b", "c", 1.0)]]
+    groups = [dict(ensemble="g", site="1", poses=poses), dict(ensemble="h", site="1", poses=poses),
+              dict(ensemble="u", site="unresolved", poses=poses, error=dict(error="ValueError: no sites"))]
+    scores = score_groups(groups, rows, tmp_path, thresholds=(1.0, 2.0))
+    assert [(s["ensemble"], s["threshold_angstrom"]) for s in scores] == [
+        ("g", 1.0), ("g", 2.0), ("h", 1.0), ("h", 2.0), ("u", 1.0), ("u", 2.0)]
+    assert scores[1]["core_score"] == pytest.approx(1 - (0.25 + 0.25 + 0.5) / 3)
+    assert all(s["core_score"] is None and s["error"] for s in scores[2:])
 
 
 def test_matrix_missing_duplicate_and_failed_pairs():
@@ -97,39 +102,18 @@ def test_pb_unknown_never_passes():
     assert aggregate([]) is None
 
 
-def pb_patches(answers):
-    buster = patch("posebusters.PoseBusters", return_value=Mock(config={"modules": []}))
-    return buster, patch("core_score.stages.posebusters.check_pose", side_effect=answers)
-
-
-def test_pb_runs_and_invalid_poses_are_filtered(tmp_path):
+def test_posebusters_records_every_pose(tmp_path):
     groups = [dict(ensemble="g", poses=[dict(ensemble="g", pose_id="a"), dict(ensemble="g", pose_id="b")])]
     answers = [dict(ensemble="g", pose_id="a", pb_valid=True), dict(ensemble="g", pose_id="b", pb_valid=False)]
-    buster, check = pb_patches(answers)
-    with buster, check as pb:
-        retained = run_pb(groups, tmp_path)
+    with patch("posebusters.PoseBusters", return_value=Mock(config={"modules": []})), \
+            patch("core_score.stages.posebusters.check_pose", side_effect=answers) as pb:
+        records = run_posebusters(groups, tmp_path)
     assert pb.call_count == 2
-    assert [p["pose_id"] for p in retained[0]["poses"]] == ["a"]
+    assert [r["pb_valid"] for r in records] == [True, False]
+    assert json.loads((tmp_path / "posebusters.json").read_text()) == answers
 
 
-def test_unknown_pb_blocks_filtered_ensemble(tmp_path):
-    groups = [dict(ensemble="g", poses=[dict(ensemble="g", pose_id="a")])]
-    buster, check = pb_patches([dict(ensemble="g", pose_id="a", pb_valid=None)])
-    with buster, check:
-        result = run_pb(groups, tmp_path)
-    assert result[0]["error"]
-    assert len(result[0]["poses"]) == 1
-
-
-def test_skip_pb_retains_every_pose_without_running_checks(tmp_path):
-    groups = [dict(ensemble="g", poses=[dict(ensemble="g", pose_id="a"), dict(ensemble="g", pose_id="b")])]
-    with patch("core_score.stages.posebusters.check_pose") as pb:
-        retained = run_pb(groups, tmp_path, skip=True)
-    pb.assert_not_called()
-    assert retained == groups
-
-
-def test_pipeline_passes_the_posebusters_setting(tmp_path):
+def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
     from core_score.pipeline import execute
 
     stages = ["prepare_groups", "prepare_site_groups", "compare_groups", "score_groups"]
@@ -137,11 +121,11 @@ def test_pipeline_passes_the_posebusters_setting(tmp_path):
     for p in patches:
         p.start()
     try:
-        with patch("core_score.pipeline.run_pb", return_value=[]) as pb:
+        with patch("core_score.pipeline.run_posebusters") as pb:
             execute([], tmp_path / "default")
-            assert pb.call_args.kwargs["skip"] is False
+            assert pb.call_count == 1
             execute([], tmp_path / "skip", skip_posebusters=True)
-            assert pb.call_args.kwargs["skip"] is True
+            assert pb.call_count == 1
     finally:
         for p in patches:
             p.stop()
@@ -157,6 +141,6 @@ def test_reference_threshold_boundary_is_strict(tmp_path):
     prepared_reference = dict(reference, prepared=dict(copies=1))
     with patch("core_score.stages.evaluation.prepare", return_value=prepared_reference), \
             patch("core_score.stages.utils.comparison_utils.pair_job", return_value=(row, {})) as compare:
-        labels = evaluate_groups([group], tmp_path, [0.5, 1.0, 1.5, 2.0])
+        labels = evaluate_groups([group], [], tmp_path, [0.5, 1.0, 1.5, 2.0])
     assert compare.call_count == 1
     assert [r["success"] for r in labels] == [False, False, True, True]
