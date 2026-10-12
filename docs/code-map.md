@@ -558,13 +558,15 @@ run carries on.
 | `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv` and `poses.csv`. |
 | `top_pose(group, validity)` | The PoseBusters-valid pose with the highest confidence, or the reason there is none. |
 | `core_table(...)` | One row per complex and T: CORE, above each cutoff, pose counts, the top pose, and reference results. |
-| `pose_table(groups, pb_records, labels, ranked)` | One row per pose: confidence, PoseBusters result and reference RMSD. |
+| `pose_table(groups, pb_records, labels, ranked)` | One row per pose: confidence, PoseBusters validity and reference RMSD. |
 | `message(error)` | The one-line message of a diagnostic record. |
 
 ### `stages/plotting.py`
 | Function | Does |
 | --- | --- |
 | `plot_core_scores(rows, output, cutoffs)` | `core_scores.png` per T: a dot per complex, ordered by CORE Score, with a line at each cutoff. Imports matplotlib only when called. |
+| `style(matplotlib)` | The figure's type and hairline axes, using the first of `FONTS` installed. |
+| `draw(axes, scores, threshold, cutoffs)` | The dots, the tint under them, the cutoff lines and the labels. |
 | `dot_size(count)` | Smaller dots for bigger benchmarks. |
 
 ### `structure/cif.py`

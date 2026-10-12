@@ -37,9 +37,12 @@ OpenStructure 2.12 build. Alternatively, activate an environment containing
 **OpenStructure 2.12** and install with pip.
 
 ```bash
-python -m pip install -e '.[plot,test]'
+python -m pip install '.[plot]'          # or -e '.[plot,test]' to work on the package
 core-score --help
 ```
+
+`plot` adds matplotlib for `--plot`, `test` adds pytest. Plain `pip install .` installs
+the pipeline alone. The package is `core_score`, the command is `core-score`.
 
 PoseBusters is pinned at **0.4.4**, the version used for the existing analysis.
 OpenStructure is an external executable. `ost` is launched from PATH and finds its
@@ -209,7 +212,7 @@ complexes last.
 | --- | --- |
 | `ensemble`, `pose_id` | The pose. |
 | `confidence` | The model's own score, when confidences are given. |
-| `pb_valid`, `failed_checks` | PoseBusters validity and the checks it failed, by name. |
+| `pb_valid` | True when PoseBusters passed every dock check on every ligand copy. Which checks failed is in `details/posebusters.json`. |
 | `rmsd`, `lddt_pli` | To the reference, with `--evaluate-reference`. |
 | `rmsd_below_2A` | Whether the pose is correct at T, one column per T. |
 | `note` | Why a result is missing. |
@@ -217,8 +220,9 @@ complexes last.
 A blank is unknown, never a pass or a failure.
 
 **`core_scores.png`**, with `--plot`, is a dot per complex, ordered by CORE Score, one PNG
-per T, with a dashed line at each cutoff saying how many complexes reach it. It needs
-matplotlib, from `pip install -e '.[plot]'`.
+per T, with a dashed line at each cutoff saying how many complexes reach it. It is set in
+Optima where that font is installed, otherwise the nearest humanist sans the machine has.
+It needs matplotlib, from `pip install '.[plot]'`.
 
 **`details/`** holds the evidence behind those files.
 

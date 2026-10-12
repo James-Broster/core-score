@@ -235,9 +235,9 @@ def test_poses_table_joins_confidence_validity_and_reference():
     rows = pose_table(groups, pb_records, labels, ranked=True)
     assert [(r["ensemble"], r["pose_id"]) for r in rows] == [
         ("h", "a"), ("g", "a"), ("g", "b"), ("u", "a")]
-    assert rows[1] == dict(ensemble="g", pose_id="a", confidence=0.8, pb_valid=True, failed_checks="",
+    assert rows[1] == dict(ensemble="g", pose_id="a", confidence=0.8, pb_valid=True,
                            rmsd=0.4, lddt_pli=0.9, rmsd_below_2A=True, note=None)
-    assert rows[2]["failed_checks"] == "bond_lengths"  # unknown checks are not failures
+    assert rows[2]["pb_valid"] is False
     assert rows[0]["pb_valid"] is None  # PoseBusters has no record for this pose
     assert rows[3]["note"] == "ValueError: no ligand"
 

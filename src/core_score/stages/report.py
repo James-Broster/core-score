@@ -71,7 +71,8 @@ def core_table(groups, scores, validity, labels, cutoffs, ranked):
 
 
 def pose_table(groups, pb_records, labels, ranked):
-    """One row per pose: its confidence, PoseBusters result and, with references, its RMSD.
+    """One row per pose: its confidence, whether PoseBusters passed it and, with references,
+    its RMSD to the reference.
 
     Columns that do not apply are left out, and a blank is unknown. The reference columns
     are whichever `label_reference_results()` produced, so there is one per threshold.
@@ -87,9 +88,8 @@ def pose_table(groups, pb_records, labels, ranked):
                 row["confidence"] = pose.get("confidence")
             record = checks.get(key)
             if pb_records is not None:
+                # True, False, or blank when unknown. Which checks failed is in details/posebusters.json.
                 row["pb_valid"] = record["pb_valid"] if record else None
-                failed = (record or {}).get("checks") or {}
-                row["failed_checks"] = "; ".join(name for name, passed in failed.items() if passed is False)
             label = measured.get(key, {})
             for name, value in label.items():
                 if name not in ("ensemble", "pose_id", "error", "radius_fallback_used"):

@@ -8,7 +8,9 @@ before relying on it.
 
 What has been checked.
 
-- **66 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
+- **69 unit tests** pass with PoseBusters 0.4.4, RDKit and Gemmi.
+- **The built wheel** installs into a clean environment, and `core-score` runs the whole
+  pipeline from that install.
 - **Equivalence with 0.2.0.** Both versions were run on the same ensembles with a
   stand-in `ost` executable that computes ligand RMSD from coordinates. The ensembles
   covered single-copy and two-copy predictions, an OST-undetectable ligand, original
