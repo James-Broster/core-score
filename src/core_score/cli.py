@@ -45,7 +45,7 @@ def parser():
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
                    help="Thresholds T in angstroms at which CORE is calculated (default: 2)")
     p.add_argument("--plot", action="store_true",
-                   help="Also save core_scores.png: a dot per complex (needs matplotlib)")
+                   help="Also save core_scores.png and core_score_distribution.png (needs matplotlib)")
     return p
 
 

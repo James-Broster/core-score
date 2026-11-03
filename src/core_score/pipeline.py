@@ -1,6 +1,7 @@
 """Run the analysis stages in order and save every dataset."""
 
 import os
+import shutil
 from importlib.metadata import version
 from pathlib import Path
 from core_score.inputs.inputs import load_inputs
@@ -43,8 +44,9 @@ def execute(
 ):
     """Run the full analysis on loaded ensembles and return completion counts.
 
-    The files a user reads go in `output`. Everything behind them goes in `output/details`.
-    Poses are compared with a reference wherever their ensemble has one.
+    The files a user reads go in `output`, and the evidence behind them in `output/details`.
+    The working copies of every structure are deleted at the end. Poses are compared with a
+    reference wherever their ensemble has one.
     """
     require_ost()
     evaluate_reference = any("reference" in group for group in groups)
@@ -70,21 +72,21 @@ def execute(
     print(f"Comparing predictions with {workers} simultaneous OST worker(s)", flush=True)
     rows = compare_groups(sites, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
     scores = score_groups(sites, rows, thresholds)
-    labels = []
+    references = []
     if evaluate_reference:
         print("Comparing predictions with their references", flush=True)
-        labels = evaluate_groups(prepared, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
-    scores_by_threshold = write_report(sites, scores, pb_records, labels, output)
+        references = evaluate_groups(prepared, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
+    scores_by_threshold = write_report(sites, scores, pb_records, references, output)
     if plot:
         from core_score.outputs.plot import plot_core_scores
         plot_core_scores(scores_by_threshold, output)
 
-    summary = summarize_run(scores, rows, sites, labels)
-    write_json(details / "status.json", summary["status"])
-    return summary
+    for working in ("prepared", "references"):
+        shutil.rmtree(details / working, ignore_errors=True)
+    return summarize_run(scores, rows, sites, references)
 
 
-def summarize_run(scores, rows, groups, labels):
+def summarize_run(scores, rows, groups, references):
     """Completion counts; the measurements themselves are in the saved datasets."""
     ensembles = {(score["ensemble"], score["site"]) for score in scores}
     scored = {(score["ensemble"], score["site"]) for score in scores if score["core_score"] is not None}
@@ -97,6 +99,6 @@ def summarize_run(scores, rows, groups, labels):
             "incomplete_scores": len(ensembles - scored),
             "failed_comparisons": failed_comparisons,
             "unresolved_ensembles": sum(bool(group.get("error")) for group in groups),
-            "unknown_reference_labels": sum(label["rmsd"] is None for label in labels),
+            "unknown_reference_scores": sum(result["rmsd"] is None for result in references),
         },
     }

@@ -18,7 +18,7 @@ def prepare_site_groups(groups, output, *, timeout=None):
         try:
             failed = [pose["pose_id"] for pose in group["poses"] if pose.get("error")]
             if failed:
-                raise ValueError(f"Poses failed preparation: {failed}; see details/prepared_manifest.json")
+                raise ValueError(f"Poses failed preparation: {failed}; see their notes in predictions.csv")
             counts = {pose["prepared"]["copies"] for pose in group["poses"]}
             if len(counts) != 1:
                 # Copies can only be matched to sites when every pose has the same number.
@@ -34,7 +34,8 @@ def prepare_site_groups(groups, output, *, timeout=None):
             report = diagnostic("site_assignment", exc, ensemble=group["ensemble"])
             reports.append(report)
             split.append(dict(group, site="unresolved", name=group["ensemble"], error=report))
-    write_json(output / "sites.json", reports)
+    if reports:
+        write_json(output / "sites.json", reports)
     return split
 
 

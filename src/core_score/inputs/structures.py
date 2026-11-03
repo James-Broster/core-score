@@ -341,17 +341,3 @@ def write_molecule(mol, path):
         raise ValueError(
             "SDF serialization changed coordinates beyond format precision"
         )
-
-
-def read_original(path, smiles):
-    molecules = list(Chem.SDMolSupplier(str(path), removeHs=False, sanitize=True))
-    if len(molecules) != 1 or molecules[0] is None:
-        raise ValueError(f"Expected one readable molecule per original SDF: {path}")
-    mol = molecules[0]
-    if not mol.GetNumConformers():
-        raise ValueError("Original SDF has no coordinates")
-    if canonical_smiles(mol) != canonical_smiles(template_mol(smiles)):
-        raise ValueError(
-            "Chemical identity mismatch between original SDF and supplied SMILES"
-        )
-    return mol

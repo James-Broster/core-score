@@ -7,8 +7,8 @@ structure file or a wildcard matching many:
     7ly6,CC(=O)Nc1ccc(O)cc1,predictions/7ly6/*.cif
 
 Optional columns are confidence (one prediction per row), ligand_chain (space separated
-when the ligand has several copies), reference (the ground-truth structure) and ligand_sdf
-(the ligand in the structure's frame, for docking outputs). Paths are relative to the CSV.
+when the ligand has several copies) and reference (the ground-truth structure). Paths are
+relative to the CSV.
 """
 
 import csv
@@ -21,7 +21,7 @@ from rdkit import Chem
 from core_score.inputs.structures import template_mol
 
 REQUIRED = ("ensemble", "ligand", "predictions")
-OPTIONAL = ("confidence", "ligand_chain", "reference", "ligand_sdf")
+OPTIONAL = ("confidence", "ligand_chain", "reference")
 MIN_POSES = NEIGHBOURS + 1
 LIGAND_FILES = (".sdf", ".mol")
 
@@ -107,10 +107,9 @@ def make_poses(name, row, base, smiles):
     paths = sorted(glob.glob(str(base / row["predictions"]), recursive=True))
     if not paths:
         raise FileNotFoundError(f"{name}: no structure file matches {row['predictions']}")
-    single = {k: row[k] for k in ("confidence", "ligand_sdf") if k in row}
-    if single and len(paths) > 1:
+    if "confidence" in row and len(paths) > 1:
         raise ValueError(f"{name}: {row['predictions']} matches {len(paths)} files, so give "
-                         f"{' and '.join(single)} on a row of its own for each prediction")
+                         "confidence on a row of its own for each prediction")
     poses = []
     for path in paths:
         path = str(Path(path).resolve())
@@ -118,8 +117,6 @@ def make_poses(name, row, base, smiles):
                     smiles=smiles, ligand_chains=row.get("ligand_chain", "").split())
         if "confidence" in row:
             pose["confidence"] = float(row["confidence"])
-        if "ligand_sdf" in row:
-            pose["ligand_sdfs"] = [resolve(base, row["ligand_sdf"])]
         poses.append(pose)
     return poses
 

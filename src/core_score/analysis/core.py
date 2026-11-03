@@ -21,7 +21,7 @@ def score_groups(groups, rows, thresholds=(2.0,)):
             except ValueError as exc:
                 error = diagnostic("scoring", exc)
         scores += [
-            dict(ensemble=group["ensemble"], site=group["site"], name=group["name"], pose_count=len(ids), threshold_angstrom=threshold,
+            dict(ensemble=group["ensemble"], site=group["site"], name=group["name"], threshold_angstrom=threshold,
                  core_score=value, error=error["error"] if error else None)
             for threshold, value in values.items()
         ]

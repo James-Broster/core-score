@@ -87,3 +87,25 @@ def test_structures_without_confidence_files_leave_the_column_out_and_core_score
     from core_score.inputs.inputs import load_inputs
     [group] = load_inputs([output])
     assert len(group["poses"]) == 4 and group["reference"]["path"] == str(tmp_path / "refs" / "target.cif")
+
+
+def test_boltz_and_chai_confidence_files_are_read(tmp_path):
+    import numpy as np
+
+    boltz = tmp_path / "preds" / "boltz_target" / "predictions" / "job"
+    chai = tmp_path / "preds" / "chai_target"
+    boltz.mkdir(parents=True)
+    chai.mkdir(parents=True)
+    for k in range(4):
+        (boltz / f"job_model_{k}.cif").write_text(CIF.format(x=k))
+        pairs = {"0": {"0": 0.9, "1": 0.2}, "1": {"0": k / 10, "1": 0.5}}
+        (boltz / f"confidence_job_model_{k}.json").write_text(json.dumps({"pair_chains_iptm": pairs}))
+        (chai / f"pred.model_idx_{k}.cif").write_text(CIF.format(x=k))
+        np.savez(chai / f"scores.model_idx_{k}.npz", per_chain_pair_iptm=np.array([[[0.9, 0.2], [k / 20, 0.5]]]))
+    rows, notes = build_rows(tmp_path / "preds", ligands_csv(tmp_path / "s.csv", ["boltz_target", "chai_target"]),
+                             tmp_path / "in.csv")
+    confidence = {}
+    for row in rows:
+        confidence.setdefault(row["ensemble"], []).append(row["confidence"])
+    assert confidence == {"boltz_target": [0.0, 0.1, 0.2, 0.3], "chai_target": [0.0, 0.05, 0.1, 0.15]}
+    assert "Boltz" in notes[-1] and "Chai-1" in notes[-1]

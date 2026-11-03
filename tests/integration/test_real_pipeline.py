@@ -96,3 +96,42 @@ def test_pb_records_invalid_real_poses_and_core_still_uses_them(tmp_path, monkey
     assert summary["score_count"] == 1
     assert scores[0]["prediction_count"] == "4"
     assert scores[0]["core_score"] is not None
+
+
+def test_two_ligand_copies_are_scored_as_two_sites(tmp_path, monkeypatch):
+    options(monkeypatch)
+    folder = tmp_path / "poses"
+    groups(folder)
+    both_copies = load_inputs([folder / f"{name}.cif" for name in "abcd"], ligand=inputs()["smiles"])
+    execute(both_copies, tmp_path / "sites", skip_posebusters=True)
+    with (tmp_path / "sites" / "core_scores.csv").open() as handle:
+        scores = {row["ensemble"]: float(row["core_score"]) for row in csv.DictReader(handle)}
+    # Copy B moves 0.28 A between the two structures, so CORE = 1 - RMSD / 3 as above.
+    # Copy C moves more than 2 A, so each pose's only close neighbour is its own copy: CORE = 1/3.
+    expected = inputs()["expected_single_copy"]["rmsd"]
+    assert scores == pytest.approx({"ensemble_site_1": 1 - expected / 3, "ensemble_site_2": 1 / 3}, rel=TOLERANCE)
+
+
+def test_command_line_run_with_reference_and_plots(tmp_path, monkeypatch):
+    pytest.importorskip("matplotlib")
+    from core_score.cli import main
+
+    options(monkeypatch)
+    groups(tmp_path / "poses")
+    shutil.copy(FIXTURES / "7wl4_pose0.cif", tmp_path / "reference.cif")
+    table = tmp_path / "core_score_input.csv"
+    table.write_text("ensemble,ligand,predictions,reference,ligand_chain\n"
+                     f"7wl4,{inputs()['smiles']},poses/*.cif,reference.cif,B\n")
+    assert main([str(table), "--out", str(tmp_path / "results"), "--workers", "2", "--plot"]) == 0
+    results = tmp_path / "results"
+    assert sorted(p.name for p in results.iterdir()) == [
+        "core_score_distribution.png", "core_scores.csv", "core_scores.png", "details", "predictions.csv"]
+    # The evidence is kept, the working copies of every structure are not.
+    assert sorted(p.name for p in (results / "details").iterdir()) == [
+        "pairs.csv", "posebusters.json", "reference_details.json", "run.json"]
+    with (results / "predictions.csv").open() as handle:
+        rows = {row["prediction"]: row for row in csv.DictReader(handle)}
+    # a and c are copies of the reference itself.
+    for name in ("poses/a.cif", "poses/c.cif"):
+        assert float(rows[name]["rmsd"]) == pytest.approx(0, abs=1e-3)
+        assert float(rows[name]["lddt_pli"]) == pytest.approx(1)

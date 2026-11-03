@@ -1,5 +1,5 @@
 """PoseBusters dock checks for every pose. The results are saved for use downstream, such as
-choosing the top-ranked valid pose. CORE uses every pose whatever its result. Unknown never
+choosing a top-ranked prediction. CORE uses every pose whatever its result. Unknown never
 counts as a pass."""
 
 from core_score.outputs.files import clean, diagnostic, write_json
@@ -44,7 +44,7 @@ def check_pose(buster, checks, pose):
     record = dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"], pb_valid=None,
                   checks=dict.fromkeys(checks))
     if pose.get("error"):
-        return dict(record, error="Pose was not prepared; see details/prepared_manifest.json")
+        return dict(record, error="The prediction could not be prepared")
     prepared = pose["prepared"]
     copies = [check_copy(buster, checks, copy, prepared["receptor"]) for copy in prepared["copy_records"]]
     combined = {name: aggregate(copy.get("checks", {}).get(name) for copy in copies) for name in checks}

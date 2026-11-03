@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 requires-python = ">=3.11"
-dependencies = ["numpy>=2", "scipy>=1.13", "gemmi>=0.7.5,<0.8", "rdkit>=2025.3", "pandas>=2.2", "posebusters>=0.6.5,<0.7"]
+dependencies = ["numpy>=2", "scipy>=1.13", "gemmi>=0.7.5,<0.8", "rdkit>=2025.3", "posebusters>=0.6.5,<0.7"]
 
 [project.urls]
 Repository = "https://github.com/James-Broster/core-score"

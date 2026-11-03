@@ -29,10 +29,6 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(clean(value), indent=2, allow_nan=False) + "\n")
 
 
-def write_jsonl(path, records):
-    Path(path).write_text("".join(json.dumps(clean(r), allow_nan=False) + "\n" for r in records))
-
-
 def write_csv(path, rows):
     fields = list(dict.fromkeys(k for row in rows for k in row))
     with Path(path).open("w", newline="") as handle:

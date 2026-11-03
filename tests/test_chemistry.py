@@ -6,8 +6,6 @@ from rdkit.Chem import AllChem
 from core_score.inputs.structures import (
     matched_template,
     generic_graph,
-    write_molecule,
-    read_original,
 )
 from core_score.inputs.structures import canonical_smiles
 
@@ -37,15 +35,6 @@ def test_connectivity_mismatch_is_not_repaired():
     observed = conformer("CCC")
     with pytest.raises(ValueError, match="identity"):
         matched_template(Chem.MolFromSmiles("C1CC1"), observed)
-
-
-def test_original_sdf_identity_and_coordinate_precision(tmp_path):
-    mol = conformer("CCO")
-    path = tmp_path / "ligand.sdf"
-    write_molecule(mol, path)
-    assert canonical_smiles(read_original(path, "CCO")) == "CCO"
-    with pytest.raises(ValueError, match="identity"):
-        read_original(path, "CCN")
 
 
 def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
@@ -176,3 +165,67 @@ def test_receptor_shortens_chain_names_too_long_for_pdb(tmp_path):
     write_receptor(source, set(), tmp_path / "receptor.pdb")
     structure = gemmi.read_structure(str(tmp_path / "receptor.pdb"))
     assert len(structure[0]) == len(gemmi.read_structure(str(source))[0])
+
+
+ETHANOL = """data_pose
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_seq_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+HETATM 1 C C1 LIG B 1 0.000 0.000 0.000
+HETATM 2 C C2 LIG B 1 1.520 0.000 0.000
+HETATM 3 O O1 LIG B 1 2.000 1.350 0.000
+"""
+AF3_SMILES = """loop_
+_chem_comp.id
+_chem_comp.pdbx_smiles
+LIG CCO
+"""
+BOND_TABLE = """loop_
+_chem_comp_bond.comp_id
+_chem_comp_bond.atom_id_1
+_chem_comp_bond.atom_id_2
+_chem_comp_bond.value_order
+LIG C1 C2 SING
+LIG C2 O1 SING
+"""
+
+
+@pytest.mark.parametrize("extra, route", [
+    (AF3_SMILES, "native_smiles_atom_names"),  # AlphaFold3
+    (BOND_TABLE, "native_cif_bonds"),  # OpenFold3
+    ("", "coordinate_connectivity"),  # Boltz, Chai-1, Protenix
+])
+def test_each_bond_route_gives_the_same_chemistry_at_the_predicted_coordinates(extra, route):
+    from core_score.inputs.structures import choose_ligands, make_ligand
+
+    doc = gemmi.cif.read_string(ETHANOL + extra)
+    [rows] = choose_ligands(doc, dict(smiles="CCO")).values()
+    _, pb_mol, provenance, error = make_ligand(doc, rows, "CCO", {}, "ensemble")
+    assert (provenance, error) == (route, None)
+    assert canonical_smiles(pb_mol) == "CCO"
+    assert pb_mol.GetConformer().GetPositions().tolist() == [[0, 0, 0], [1.52, 0, 0], [2, 1.35, 0]]
+
+
+def test_pdb_input_is_prepared_like_cif(tmp_path):
+    import json
+    from pathlib import Path
+    from core_score.inputs.prepare import prepare_pose
+
+    fixtures = Path(__file__).parent / "fixtures"
+    smiles = json.loads((fixtures / "manifest.json").read_text())["smiles"]
+    pdb = tmp_path / "pose.pdb"
+    gemmi.read_structure(str(fixtures / "7wl4_pose0.cif")).write_pdb(str(pdb))
+    pose = dict(ensemble="e", pose_id="p", smiles=smiles, ligand_chains=["B"])
+    from_cif = prepare_pose(dict(pose, path=str(fixtures / "7wl4_pose0.cif")), tmp_path / "cif" / "pose.cif")
+    from_pdb = prepare_pose(dict(pose, path=str(pdb)), tmp_path / "pdb" / "pose.cif")
+    assert from_pdb["copies"] == from_cif["copies"] == 1
+    assert from_pdb["copy_records"][0]["pb_error"] is None
+    assert from_pdb["copy_records"][0]["centre"] == pytest.approx(from_cif["copy_records"][0]["centre"], abs=1e-3)

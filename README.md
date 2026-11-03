@@ -119,6 +119,19 @@ in several copies is scored once per binding site, as `<ensemble>_site_1`,
 `<ensemble>_site_2` and so on. A `note` column appears when something could not be
 calculated, saying why.
 
+`results/details/` holds the evidence behind both files.
+
+| File | Contents |
+| --- | --- |
+| `pairs.csv` | The RMSD for every pair of predictions, the numbers CORE is built from. |
+| `posebusters.json` | Every individual PoseBusters check for every prediction, so you can see why one failed. |
+| `reference_details.json` | OpenStructure's full output against the reference, when you gave one. |
+| `run.json` | The settings and package versions used. |
+
+Two more appear only when needed: `sites.json`, saying how the copies of a ligand were
+matched to binding sites, and `failed_pairs.json`, with OpenStructure's error for any pair
+of predictions it could not compare.
+
 ## Options
 
 | Option | Meaning |

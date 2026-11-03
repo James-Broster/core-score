@@ -5,7 +5,7 @@ import math
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from core_score.analysis import ost
-from core_score.outputs.files import diagnostic, write_csv, write_jsonl
+from core_score.outputs.files import diagnostic, write_csv, write_json
 
 
 def compare_groups(groups, output, *, workers=1, timeout=None, radius_fallback=True):
@@ -13,7 +13,9 @@ def compare_groups(groups, output, *, workers=1, timeout=None, radius_fallback=T
     results.sort(key=lambda result: tuple(result[0][k] for k in ("ensemble", "site", "pose_i", "pose_j")))
     rows = [row for row, _ in results]
     write_csv(output / "pairs.csv", rows)
-    write_jsonl(output / "ligand_details.jsonl", [detail for _, detail in results])
+    failures = [detail for row, detail in results if row["error"]]
+    if failures:
+        write_json(output / "failed_pairs.json", failures)
     return rows
 
 

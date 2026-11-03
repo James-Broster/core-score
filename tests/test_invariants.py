@@ -9,11 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import gemmi
-from rdkit import Chem
-from rdkit.Chem import AllChem
 from core_score.analysis.pairs import pair_job, summarize
 from core_score.inputs.prepare import prepare_pose
-from core_score.inputs.structures import atom_rows, filter_records, ligand_residues, read_document
+from core_score.inputs.structures import filter_records, ligand_residues, read_document
 
 
 class SummaryTests(unittest.TestCase):
@@ -131,24 +129,6 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
                 prepare_pose(
                     dict(path=str(source), ligand_chains=["Z"]), Path(tmp) / "out.cif"
                 )
-
-    def test_explicit_sdfs_are_passed_through_without_rewriting(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "source.cif"
-            source.write_text(self.CIF)
-            ligand = Chem.AddHs(Chem.MolFromSmiles("CCO"))
-            AllChem.EmbedMolecule(ligand, randomSeed=1)
-            sdf = Path(tmp) / "ligand.sdf"
-            Chem.MolToMolFile(ligand, str(sdf))
-            contents = sdf.read_bytes()
-            result = prepare_pose(
-                dict(path=str(source.resolve()), ligand_sdfs=[str(sdf.resolve())], smiles="CCO"),
-                Path(tmp) / "pose.cif",
-            )
-            self.assertEqual(result["path"], str(Path(tmp) / "pose.cif"))
-            self.assertEqual(atom_rows(read_document(result["path"])), atom_rows(read_document(source)))
-            self.assertEqual(result["ligand_sdfs"], [str(sdf.resolve())])
-            self.assertEqual(sdf.read_bytes(), contents)
 
 
 if __name__ == "__main__":
