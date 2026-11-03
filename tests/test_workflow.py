@@ -111,7 +111,7 @@ def test_each_check_combines_the_copies_and_unknown_never_passes():
 def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
     from core_score.pipeline import execute
 
-    stages = ["prepare_groups", "prepare_site_groups", "compare_groups", "score_groups"]
+    stages = ["require_ost", "prepare_groups", "prepare_site_groups", "compare_groups", "score_groups"]
     patches = [patch(f"core_score.pipeline.{name}", return_value=[]) for name in stages]
     for p in patches:
         p.start()
@@ -126,120 +126,99 @@ def test_pipeline_scores_every_pose_and_can_skip_posebusters(tmp_path):
             p.stop()
 
 
-def test_reference_threshold_boundary_is_strict(tmp_path):
-    from core_score.analysis.reference import correct_column, evaluate_groups
+def test_reference_results_are_raw_scores_for_every_pose(tmp_path):
+    from core_score.analysis.reference import evaluate_groups
 
     pose = dict(ensemble="g", pose_id="p", path="pose.cif", prepared=dict(copies=1))
     reference = dict(ensemble="g", pose_id="reference", path="ref.cif")
-    group = dict(ensemble="g", poses=[pose], reference=reference)
-    row = dict(ensemble="g", site="reference", pose_i="p", pose_j="reference", rmsd=1.0, lddt_pli=0.9, error="")
-    prepared_reference = dict(reference, prepared=dict(copies=1))
-    with patch("core_score.analysis.reference.prepare", return_value=prepared_reference), \
+    groups = [dict(ensemble="g", poses=[pose], reference=reference), dict(ensemble="h", poses=[pose])]
+    row = dict(ensemble="g", site="reference", pose_i="p", pose_j="reference", rmsd=1.0, lddt_pli=0.7, error="")
+    with patch("core_score.analysis.reference.prepare", return_value=dict(reference, prepared=dict(copies=1))), \
             patch("core_score.analysis.pairs.pair_job", return_value=(row, {})) as compare:
-        labels = evaluate_groups([group], tmp_path, [0.5, 1.0, 1.5, 2.0])
-    assert compare.call_count == 1
-    assert len(labels) == 1  # one row per pose, one column per threshold
-    assert [labels[0][correct_column(t)] for t in (0.5, 1.0, 1.5, 2.0)] == [False, False, True, True]
+        results = evaluate_groups(groups, tmp_path)
+    assert compare.call_count == 1  # h has no reference
+    assert results == [dict(ensemble="g", pose_id="p", rmsd=1.0, lddt_pli=0.7, error=None)]
 
 
-def test_correct_needs_rmsd_below_threshold_and_lddt_pli_above_0_8():
-    from core_score.analysis.reference import label_reference_results
+def test_failed_reference_comparison_is_blank_with_its_reason():
+    from core_score.analysis.reference import reference_result
 
-    records = [dict(ensemble="g", pose_id=p, rmsd=r, lddt_pli=l, error="")
-               for p, r, l in [("a", 1.0, 0.9), ("b", 1.0, 0.7), ("c", 1.0, 0.8), ("d", 3.0, 0.9), ("e", 1.0, None)]]
-    labels = label_reference_results(records, [2.0])
-    assert [label["correct_2A"] for label in labels] == [True, False, False, False, None]
-
-
-def test_failed_reference_comparison_is_unknown_not_wrong():
-    from core_score.analysis.reference import label_reference_results
-
-    [label] = label_reference_results([dict(ensemble="g", pose_id="p", rmsd=0.5, error="ambiguous")], [2.0])
-    assert (label["rmsd"], label["correct_2A"], label["error"]) == (None, None, "ambiguous")
-    [label] = label_reference_results([dict(ensemble="g", pose_id="p", error=dict(error="ValueError: x"))], [2.0])
-    assert label["error"] == "ValueError: x"
-
-
-def test_top_pose_is_the_valid_pose_with_highest_confidence():
-    from core_score.outputs.report import top_pose
-
-    poses = [dict(ensemble="g", pose_id=p, confidence=c) for p, c in zip("abcd", (0.9, 0.7, 0.7, 0.95))]
-    group = dict(ensemble="g", poses=poses)
-    validity = {("g", "a"): False, ("g", "b"): True, ("g", "c"): True, ("g", "d"): None}
-    assert top_pose(group, validity)[0]["pose_id"] == "b"  # a invalid, d unknown, b wins the tie
-    assert top_pose(group, None) == (None, "PoseBusters was skipped")
-    assert top_pose(group, {("g", "a"): False})[1] == "no PoseBusters-valid pose"
-    assert top_pose(dict(poses=[dict(ensemble="g", pose_id="a")]), {("g", "a"): True})[1] == "no confidences given"
+    result = reference_result(dict(ensemble="g", pose_id="p", rmsd=0.5, lddt_pli=0.9, error="ambiguous"))
+    assert (result["rmsd"], result["lddt_pli"], result["error"]) == (None, None, "ambiguous")
+    assert reference_result(dict(ensemble="g", pose_id="p", error=dict(error="ValueError: x")))["error"] == "ValueError: x"
 
 
 def report_inputs():
-    groups = [dict(ensemble=e, poses=[dict(ensemble=e, pose_id=p, confidence=c) for p, c in poses])
-              for e, poses in (("h", [("a", 0.9)]), ("g", [("a", 0.8), ("b", 0.6)]), ("u", [("a", 0.9)]))]
-    scores = [dict(ensemble="h", site="1", name="h", pose_count=1, threshold_angstrom=2.0, core_score=0.6, error=None),
-              dict(ensemble="g", site="1", name="g", pose_count=2, threshold_angstrom=2.0, core_score=0.9, error=None),
-              dict(ensemble="u", site="unresolved", name="u", pose_count=1, threshold_angstrom=2.0, core_score=None,
+    """Ensembles h and g score; u could not be split into sites. g has a reference."""
+    sites = [dict(ensemble=e, site=s, name=e, poses=[dict(ensemble=e, pose_id=p, confidence=c) for p, c in poses])
+             for e, s, poses in (("h", "1", [("a", 0.9)]), ("g", "1", [("a", 0.8), ("b", 0.6)]),
+                                 ("u", "unresolved", [("a", 0.9)]))]
+    scores = [dict(ensemble="h", site="1", name="h", threshold_angstrom=2.0, core_score=0.6, error=None),
+              dict(ensemble="g", site="1", name="g", threshold_angstrom=2.0, core_score=0.9, error=None),
+              dict(ensemble="u", site="unresolved", name="u", threshold_angstrom=2.0, core_score=None,
                    error="ValueError: x")]
-    validity = {("g", "a"): True, ("g", "b"): False, ("h", "a"): True, ("u", "a"): True}
-    labels = [dict(ensemble="g", pose_id="a", correct_2A=True),
-              dict(ensemble="g", pose_id="b", correct_2A=False),
-              dict(ensemble="h", pose_id="a", correct_2A=False)]
-    return groups, scores, validity, labels
+    pb = [dict(ensemble=e, pose_id=p, pb_valid=v) for e, p, v in
+          (("g", "a", True), ("g", "b", False), ("h", "a", True), ("u", "a", True))]
+    references = [dict(ensemble="g", pose_id="a", rmsd=0.4, lddt_pli=0.9, error=None),
+                  dict(ensemble="g", pose_id="b", rmsd=None, lddt_pli=None, error="ambiguous")]
+    return sites, scores, pb, references
 
 
-def test_core_table_has_one_row_per_complex_best_first():
-    from core_score.outputs.report import core_table
+def read(path):
+    import csv
+    return list(csv.DictReader(path.open()))
 
-    groups, scores, validity, labels = report_inputs()
-    rows = core_table(groups, scores, validity, labels, [0.5, 0.7], ranked=True)
-    assert [(r["ensemble"], r["above_0.5"], r["above_0.7"]) for r in rows] == [
-        ("g", True, True), ("h", True, False), ("u", None, None)]
-    g = rows[0]
-    assert (g["valid_pose_count"], g["top_pose"], g["top_pose_correct"], g["fraction_correct"]) == (1, "a", True, 0.5)
+
+def test_core_scores_has_one_row_per_complex_best_first(tmp_path):
+    from core_score.outputs.report import write_report
+
+    sites, scores, pb, references = report_inputs()
+    assert write_report(sites, scores, pb, references, tmp_path) == {2.0: [0.6, 0.9, None]}
+    rows = read(tmp_path / "core_scores.csv")
+    assert list(rows[0]) == ["ensemble", "core_score", "prediction_count", "valid_prediction_count", "note"]
+    assert [(r["ensemble"], r["core_score"], r["prediction_count"], r["valid_prediction_count"]) for r in rows] == [
+        ("g", "0.9", "2", "1"), ("h", "0.6", "1", "1"), ("u", "", "1", "1")]
     assert rows[2]["note"] == "ValueError: x"
 
 
-def test_core_table_names_each_site_of_a_multicopy_ligand():
-    from core_score.outputs.report import core_table
-
-    groups = [dict(ensemble="g", poses=[dict(ensemble="g", pose_id="a")])]
-    scores = [dict(ensemble="g", site=site, name=f"g_site_{site}", pose_count=4, threshold_angstrom=2.0,
-                   core_score=core, error=None) for site, core in (("1", 0.9), ("2", 0.4))]
-    rows = core_table(groups, scores, None, [], [0.5], ranked=False)
-    assert [(r["ensemble"], r["core_score"]) for r in rows] == [("g_site_1", 0.9), ("g_site_2", 0.4)]
-
-
-def test_report_files_only_have_the_columns_that_apply(tmp_path):
-    import csv
+def test_predictions_has_every_prediction_with_its_complex_core_score(tmp_path):
     from core_score.outputs.report import write_report
 
-    groups, scores, _, _ = report_inputs()
-    for group in groups:
-        for pose in group["poses"]:
-            del pose["confidence"]
-    write_report(groups, scores, None, [], tmp_path, cutoffs=(0.5,))
-    header = next(csv.reader((tmp_path / "core_scores.csv").open()))
-    assert header == ["ensemble", "threshold_angstrom", "core_score", "above_0.5", "pose_count", "note"]
-    assert next(csv.reader((tmp_path / "poses.csv").open())) == ["ensemble", "pose_id", "note"]
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["core_scores.csv", "poses.csv"]
-
-
-def test_poses_table_joins_confidence_validity_and_reference():
-    from core_score.outputs.report import pose_table
-
-    groups, _, _, labels = report_inputs()
-    labels = [dict(label, rmsd=0.4, lddt_pli=0.9, radius_fallback_used=True) for label in labels]
-    pb_records = [dict(ensemble="g", pose_id="a", pb_valid=True, checks=dict(bond_lengths=True)),
-                  dict(ensemble="g", pose_id="b", pb_valid=False,
-                       checks=dict(bond_lengths=False, internal_energy=None))]
-    groups[2]["poses"][0]["error"] = dict(error="ValueError: no ligand")
-    rows = pose_table(groups, pb_records, labels, ranked=True)
-    assert [(r["ensemble"], r["pose_id"]) for r in rows] == [
-        ("h", "a"), ("g", "a"), ("g", "b"), ("u", "a")]
-    assert rows[1] == dict(ensemble="g", pose_id="a", confidence=0.8, pb_valid=True,
-                           rmsd=0.4, lddt_pli=0.9, correct_2A=True, note=None)
-    assert rows[2]["pb_valid"] is False
-    assert rows[0]["pb_valid"] is None  # PoseBusters has no record for this pose
+    sites, scores, pb, references = report_inputs()
+    sites[2]["poses"][0]["error"] = dict(error="ValueError: no ligand")
+    write_report(sites, scores, pb, references, tmp_path)
+    rows = read(tmp_path / "predictions.csv")
+    assert list(rows[0]) == ["ensemble", "prediction", "core_score", "confidence", "pb_valid", "rmsd", "lddt_pli", "note"]
+    assert [(r["ensemble"], r["prediction"], r["core_score"]) for r in rows] == [
+        ("g", "a", "0.9"), ("g", "b", "0.9"), ("h", "a", "0.6"), ("u", "a", "")]
+    assert (rows[0]["pb_valid"], rows[0]["rmsd"], rows[0]["lddt_pli"]) == ("True", "0.4", "0.9")
+    assert (rows[1]["rmsd"], rows[1]["note"]) == ("", "ambiguous")
     assert rows[3]["note"] == "ValueError: no ligand"
+
+
+def test_reports_leave_out_what_was_not_given(tmp_path):
+    from core_score.outputs.report import write_report
+
+    sites, scores, _, _ = report_inputs()
+    for site in sites:
+        for pose in site["poses"]:
+            del pose["confidence"]
+    scores[2] = dict(scores[2], core_score=0.1, error=None)
+    write_report(sites, scores, None, [], tmp_path)
+    assert list(read(tmp_path / "core_scores.csv")[0]) == ["ensemble", "core_score", "prediction_count"]
+    assert list(read(tmp_path / "predictions.csv")[0]) == ["ensemble", "prediction", "core_score"]
+
+
+def test_several_thresholds_give_a_core_column_each_and_sites_keep_their_names(tmp_path):
+    from core_score.outputs.report import write_report
+
+    sites = [dict(ensemble="g", site=s, name=f"g_site_{s}", poses=[dict(ensemble="g", pose_id="a")]) for s in "12"]
+    scores = [dict(ensemble="g", site=s, name=f"g_site_{s}", threshold_angstrom=t, core_score=c, error=None)
+              for s, cores in (("1", (0.5, 0.9)), ("2", (0.2, 0.4))) for t, c in zip((1.0, 2.0), cores)]
+    write_report(sites, scores, None, [], tmp_path)
+    rows = read(tmp_path / "core_scores.csv")
+    assert [(r["ensemble"], r["core_score_1A"], r["core_score_2A"]) for r in rows] == [
+        ("g_site_1", "0.5", "0.9"), ("g_site_2", "0.2", "0.4")]
 
 
 def test_plot_dots_shrink_as_the_benchmark_grows():
@@ -248,17 +227,18 @@ def test_plot_dots_shrink_as_the_benchmark_grows():
     assert dot_size(6) > dot_size(900) > dot_size(7000)
 
 
-def test_plot_writes_one_png_per_threshold(tmp_path):
+def test_plot_writes_both_pngs_per_threshold(tmp_path):
     pytest.importorskip("matplotlib")
     from core_score.outputs.plot import plot_core_scores
 
-    rows = [dict(threshold_angstrom=t, core_score=c)
-            for t in (1.0, 2.0) for c in (0.4, 0.9, None)]
-    plot_core_scores(rows, tmp_path, cutoffs=(0.8,))
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["core_scores_1A.png", "core_scores_2A.png"]
+    plot_core_scores({1.0: [0.4, 0.9, None], 2.0: [0.5, 0.95, None]}, tmp_path)
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "core_score_distribution_1A.png", "core_score_distribution_2A.png", "core_scores_1A.png", "core_scores_2A.png"]
 
 
-def test_core_cutoffs_default_and_range():
-    assert parser().parse_args(["a.cif", "--out", "o"]).core_cutoffs == [0.5, 0.6, 0.7, 0.8, 0.9]
-    with pytest.raises(SystemExit):
-        parser().parse_args(["a.cif", "--out", "o", "--core-cutoffs", "1.5"])
+def test_missing_openstructure_says_how_to_install_it(monkeypatch):
+    from core_score.analysis.ost import require_ost
+
+    monkeypatch.setenv("PATH", "")
+    with pytest.raises(RuntimeError, match="conda install -c conda-forge -c bioconda openstructure"):
+        require_ost()

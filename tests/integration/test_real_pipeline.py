@@ -49,7 +49,7 @@ def groups(folder):
     folder.mkdir()
     for name, source in zip("abcd", ("7wl4_pose0.cif", "7wl4_pose1.cif") * 2):
         shutil.copy(FIXTURES / source, folder / f"{name}.cif")
-    return load_inputs([folder / f"{name}.cif" for name in "abcd"], ligand_chains=["B"], smiles=inputs()["smiles"])
+    return load_inputs([folder / f"{name}.cif" for name in "abcd"], ligand_chains=["B"], ligand=inputs()["smiles"])
 
 
 def test_original_ost_values_and_parallel_exports(tmp_path, monkeypatch):
@@ -94,5 +94,5 @@ def test_pb_records_invalid_real_poses_and_core_still_uses_them(tmp_path, monkey
         scores = list(csv.DictReader(handle))
     assert summary["comparison_count"] == 6
     assert summary["score_count"] == 1
-    assert scores[0]["pose_count"] == "4"
+    assert scores[0]["prediction_count"] == "4"
     assert scores[0]["core_score"] is not None

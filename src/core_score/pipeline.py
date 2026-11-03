@@ -12,20 +12,21 @@ from core_score.inputs.prepare import prepare_groups
 from core_score.outputs.report import write_report
 from core_score.analysis.core import score_groups
 from core_score.inputs.sites import prepare_site_groups
+from core_score.analysis.ost import require_ost
 
 
-def run(inputs, out, *, smiles=None, ligand_chains=None, reference=None, **options):
+def run(inputs, out, *, ligand=None, ligand_chains=None, reference=None, **options):
     """Run CORE Score from Python, exactly as the core-score command does.
 
     `inputs` is a CSV file or a list of structure files. The other settings match the
-    command-line options, for example workers=4, thresholds=(1.0, 2.0) or cutoffs=(0.7,).
+    command-line options, for example workers=4 or thresholds=(1.0, 2.0).
     Results are saved under `out`, and the completion counts are returned.
 
         import core_score
-        core_score.run("inputs.csv", "results/", workers=8)
+        core_score.run("core_score_input.csv", "results/", workers=8)
     """
     inputs = [inputs] if isinstance(inputs, (str, os.PathLike)) else inputs
-    groups = load_inputs(inputs, smiles=smiles, ligand_chains=ligand_chains, reference=reference)
+    groups = load_inputs(inputs, ligand=ligand, ligand_chains=ligand_chains, reference=reference)
     return execute(groups, out, **options)
 
 
@@ -38,7 +39,6 @@ def execute(
     radius_fallback=True,
     skip_posebusters=False,
     thresholds=(2.0,),
-    cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9),
     plot=False,
 ):
     """Run the full analysis on loaded ensembles and return completion counts.
@@ -46,9 +46,10 @@ def execute(
     The files a user reads go in `output`. Everything behind them goes in `output/details`.
     Poses are compared with a reference wherever their ensemble has one.
     """
+    require_ost()
     evaluate_reference = any("reference" in group for group in groups)
     output = Path(output).resolve()
-    thresholds, cutoffs = tuple(map(float, thresholds)), tuple(map(float, cutoffs))
+    thresholds = tuple(map(float, thresholds))
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output directory is not empty; choose a new or empty output directory")
     details = output / "details"
@@ -56,7 +57,7 @@ def execute(
     write_json(details / "run.json", dict(
         package_version=version("core-score"), posebusters_version=version("posebusters"), timeout=timeout,
         radius_fallback=radius_fallback, workers=workers, skip_posebusters=skip_posebusters,
-        thresholds=thresholds, core_cutoffs=cutoffs, evaluate_reference=evaluate_reference, plot=plot,
+        thresholds=thresholds, evaluate_reference=evaluate_reference, plot=plot,
     ))
 
     print("Preparing structures and ligand chemistry", flush=True)
@@ -66,18 +67,17 @@ def execute(
         print("Running PoseBusters dock checks", flush=True)
         pb_records = run_posebusters(prepared, details)
     sites = prepare_site_groups(prepared, details, timeout=timeout)
-    print(f"Comparing poses with {workers} simultaneous OST worker(s)", flush=True)
+    print(f"Comparing predictions with {workers} simultaneous OST worker(s)", flush=True)
     rows = compare_groups(sites, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
     scores = score_groups(sites, rows, thresholds)
     labels = []
     if evaluate_reference:
-        print("Comparing poses with their references", flush=True)
-        labels = evaluate_groups(prepared, details, thresholds, workers=workers, timeout=timeout,
-                                 radius_fallback=radius_fallback)
-    rows_by_complex = write_report(prepared, scores, pb_records, labels, output, cutoffs)
+        print("Comparing predictions with their references", flush=True)
+        labels = evaluate_groups(prepared, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
+    scores_by_threshold = write_report(sites, scores, pb_records, labels, output)
     if plot:
         from core_score.outputs.plot import plot_core_scores
-        plot_core_scores(rows_by_complex, output, cutoffs)
+        plot_core_scores(scores_by_threshold, output)
 
     summary = summarize_run(scores, rows, sites, labels)
     write_json(details / "status.json", summary["status"])

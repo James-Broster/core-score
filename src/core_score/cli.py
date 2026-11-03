@@ -14,13 +14,6 @@ def positive(value):
     return number
 
 
-def fraction(value):
-    number = float(value)
-    if not 0 <= number <= 1:
-        raise argparse.ArgumentTypeError("must be between 0 and 1")
-    return number
-
-
 def worker_count(value):
     number = int(value)
     if number < 1:
@@ -31,13 +24,13 @@ def worker_count(value):
 def parser():
     p = argparse.ArgumentParser(
         prog="core-score",
-        description="Prepare structures, run PoseBusters, compare poses and calculate CORE.",
-        epilog="Example: core-score inputs.csv --out results/ --workers 4. Make inputs.csv with core-score-csv.",
+        description="Prepare structures, run PoseBusters, compare predictions and calculate CORE.",
+        epilog="Example: core-score core_score_input.csv --out results/ --workers 4. Make the CSV with core-score-csv.",
     )
     p.add_argument("inputs", metavar="INPUT", nargs="+", type=Path,
                    help="CSV of ensembles, or structure files forming one ensemble")
     p.add_argument("--out", type=Path, required=True, help="Results directory")
-    p.add_argument("--smiles", help="Ligand SMILES for structure files; a CSV sets its own")
+    p.add_argument("--ligand", help="The ligand as a SMILES or an SDF file, for structure files; a CSV sets its own")
     p.add_argument("--ligand-chain", dest="ligand_chains", action="append",
                    help="Ligand chain for structure files; repeat for identical copies")
     p.add_argument("--workers", type=worker_count, default=1,
@@ -50,14 +43,9 @@ def parser():
     p.add_argument("--reference", type=Path,
                    help="Ground-truth structure for structure files; a CSV sets its own")
     p.add_argument("--rmsd-thresholds", type=positive, nargs="+", default=[2.0],
-                   help="Thresholds T in angstroms: CORE is calculated at each, and a pose is "
-                        "correct when its RMSD to the reference is below T and its lDDT-PLI is "
-                        "above 0.8 (default: 2)")
+                   help="Thresholds T in angstroms at which CORE is calculated (default: 2)")
     p.add_argument("--plot", action="store_true",
                    help="Also save core_scores.png: a dot per complex (needs matplotlib)")
-    p.add_argument("--core-cutoffs", type=fraction, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9],
-                   help="CORE cutoffs: each complex is reported as above (CORE >= cutoff) or below "
-                        "each one (default: 0.5 to 0.9)")
     return p
 
 
@@ -68,7 +56,7 @@ def main(argv=None):
         summary = run(
             args.inputs,
             args.out,
-            smiles=args.smiles,
+            ligand=args.ligand,
             ligand_chains=args.ligand_chains,
             reference=args.reference,
             workers=args.workers,
@@ -76,7 +64,6 @@ def main(argv=None):
             radius_fallback=not args.no_radius_fallback,
             skip_posebusters=args.skip_posebusters,
             thresholds=args.rmsd_thresholds,
-            cutoffs=args.core_cutoffs,
             plot=args.plot,
         )
     except (ValueError, OSError, RuntimeError) as exc:

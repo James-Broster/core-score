@@ -1,9 +1,10 @@
 """core-score-csv: write the CSV that core-score reads, from a folder of predictions.
 
-    core-score-csv --predictions predictions/ --smiles smiles.csv --output inputs.csv
+    core-score-csv --predictions predictions/ --ligands ligands.csv --output core_score_input.csv
 
 `predictions` holds one folder per ensemble, named for it, with that ensemble's structure
-files anywhere inside it. `smiles.csv` has the columns ensemble,smiles. With --references,
+files anywhere inside it. `ligands.csv` has the columns ensemble,ligand, each ligand a
+SMILES or an SDF file relative to that CSV. With --references,
 a folder holding <ensemble>.cif or <ensemble>.pdb for each ensemble, the reference column
 is filled in too.
 
@@ -25,7 +26,7 @@ import re
 import sys
 from pathlib import Path
 import numpy as np
-from core_score.inputs.inputs import MIN_POSES
+from core_score.inputs.inputs import LIGAND_FILES, MIN_POSES, ligand_smiles, resolve
 from core_score.inputs.structures import atom_rows, choose_ligands, ligand_residues, read_document, residue_key
 
 STRUCTURE_SUFFIXES = (".cif", ".pdb")
@@ -118,22 +119,30 @@ def find_poses(folder):
     return sorted(kept.values()), skipped
 
 
-def read_smiles(path):
+def read_ligands(path):
     with Path(path).open(newline="") as handle:
         reader = csv.DictReader(handle)
-        if not {"ensemble", "smiles"} <= set(reader.fieldnames or []):
-            raise ValueError(f"{path} needs the columns ensemble,smiles")
-        return {row["ensemble"].strip(): row["smiles"].strip() for row in reader}
+        if not {"ensemble", "ligand"} <= set(reader.fieldnames or []):
+            raise ValueError(f"{path} needs the columns ensemble,ligand")
+        return {row["ensemble"].strip(): row["ligand"].strip() for row in reader if row["ligand"].strip()}
 
 
-def build_rows(predictions, smiles_csv, output, references=None):
-    """One CSV row per pose, and notes to print about what was found."""
+def build_rows(predictions, ligands_csv, output, references=None):
+    """One CSV row per prediction, and notes to print about what was found."""
     predictions, output = Path(predictions), Path(output)
-    smiles = read_smiles(smiles_csv)
+    ligands, base = read_ligands(ligands_csv), Path(ligands_csv).resolve().parent
     folders = sorted(p for p in predictions.iterdir() if p.is_dir())
     if not folders:
         raise ValueError(f"{predictions} has no folders; put each ensemble's structures in a folder named for it")
-    problems = [f"{f.name}: no SMILES in {smiles_csv}" for f in folders if not smiles.get(f.name)]
+    problems = [f"{f.name}: no ligand in {ligands_csv}" for f in folders if f.name not in ligands]
+    smiles, written = {}, {}
+    for name, ligand in ligands.items():
+        try:
+            smiles[name] = ligand_smiles(ligand, base)
+            in_file = Path(ligand).suffix.lower() in LIGAND_FILES
+            written[name] = relative(resolve(base, ligand), output) if in_file else ligand
+        except (ValueError, OSError) as exc:
+            problems.append(f"{name}: {exc}")
     rows, notes, models = [], [], set()
     for folder in folders:
         poses, skipped = find_poses(folder)
@@ -148,11 +157,11 @@ def build_rows(predictions, smiles_csv, output, references=None):
                 problems.append(f"{folder.name}: no {folder.name}.cif or {folder.name}.pdb in {references}")
             reference = found[0] if found else None
         for path, atoms in poses:
-            row = dict(ensemble=folder.name, smiles=smiles.get(folder.name, ""), poses=relative(path, output))
+            row = dict(ensemble=folder.name, ligand=written.get(folder.name, ""), predictions=relative(path, output))
             model, scores_path, reader = confidence_file(path)
-            if model and smiles.get(folder.name):
+            if model and folder.name in smiles:
                 try:
-                    row["confidence"] = ligand_iptm(path, row["smiles"], atoms, reader(scores_path))
+                    row["confidence"] = ligand_iptm(path, smiles[folder.name], atoms, reader(scores_path))
                 except (ValueError, KeyError) as exc:
                     problems.append(f"{path.relative_to(predictions)}: confidence not read from {scores_path.name}: {exc}")
                 models.add(model)
@@ -161,8 +170,8 @@ def build_rows(predictions, smiles_csv, output, references=None):
             rows.append(row)
     with_confidence = sum("confidence" in row for row in rows)
     if 0 < with_confidence < len(rows):
-        missing = [row["poses"] for row in rows if "confidence" not in row]
-        problems.append(f"confidence found for {with_confidence} of {len(rows)} poses; none beside {missing[:5]}")
+        missing = [row["predictions"] for row in rows if "confidence" not in row]
+        problems.append(f"confidence found for {with_confidence} of {len(rows)} predictions; none beside {missing[:5]}")
     if problems:
         raise ValueError("cannot write the CSV:\n  " + "\n  ".join(problems))
     notes.append(f"confidence: ligand ipTM read from {', '.join(sorted(models))} files" if models else
@@ -178,10 +187,11 @@ def parser():
     p = argparse.ArgumentParser(
         prog="core-score-csv",
         description="Write the CSV core-score reads from a folder holding one folder of predictions per ensemble.",
-        epilog="Example: core-score-csv --predictions predictions/ --smiles smiles.csv --output inputs.csv",
+        epilog="Example: core-score-csv --predictions predictions/ --ligands ligands.csv --output core_score_input.csv",
     )
     p.add_argument("--predictions", type=Path, required=True, help="Folder with one folder per ensemble")
-    p.add_argument("--smiles", type=Path, required=True, help="CSV with the columns ensemble,smiles")
+    p.add_argument("--ligands", type=Path, required=True,
+                   help="CSV with the columns ensemble,ligand, each ligand a SMILES or an SDF file")
     p.add_argument("--output", type=Path, required=True, help="CSV to write")
     p.add_argument("--references", type=Path, help="Folder holding <ensemble>.cif or <ensemble>.pdb ground truths")
     return p
@@ -194,7 +204,7 @@ def main(argv=None):
         print(f"core-score-csv: {args.output} already exists; choose a new file", file=sys.stderr)
         return 2
     try:
-        rows, notes = build_rows(args.predictions, args.smiles, args.output, args.references)
+        rows, notes = build_rows(args.predictions, args.ligands, args.output, args.references)
     except (ValueError, OSError) as exc:
         print(f"core-score-csv: {exc}", file=sys.stderr)
         return 2
@@ -204,6 +214,7 @@ def main(argv=None):
         writer.writerows(rows)
     for note in notes:
         print(note)
-    print(f"Wrote {len(rows)} poses in {len({row['ensemble'] for row in rows})} ensembles to {args.output}")
+    ensembles = len({row["ensemble"] for row in rows})
+    print(f"Wrote {len(rows)} predictions in {ensembles} ensemble{'' if ensembles == 1 else 's'} to {args.output}")
     print(f"Next: core-score {args.output} --out results/")
     return 0

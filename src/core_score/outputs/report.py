@@ -1,102 +1,89 @@
-"""Write the two files a user reads: core_scores.csv, one row per complex, and poses.csv,
-one row per pose. Everything behind them is in details/."""
+"""Write the two files a user reads: core_scores.csv, one row per complex, and
+predictions.csv, one row per prediction. Everything behind them is in details/."""
 
 from core_score.outputs.files import write_csv
-from core_score.analysis.reference import correct_column
 
 
-def write_report(groups, scores, pb_records, labels, output, cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9)):
-    validity = None
-    if pb_records is not None:
-        validity = {(r["ensemble"], r["pose_id"]): r["pb_valid"] for r in pb_records}
-    ranked = any("confidence" in group["poses"][0] for group in groups)
-    rows = core_table(groups, scores, validity, labels, cutoffs, ranked)
-    write_csv(output / "core_scores.csv", rows)
-    write_csv(output / "poses.csv", pose_table(groups, pb_records, labels, ranked))
-    return rows
+def write_report(sites, scores, pb_records, references, output):
+    """Write both files and return each threshold's CORE Scores, for the plots.
 
-
-def top_pose(group, validity):
-    """The PoseBusters-valid pose with the highest confidence, the paper's top-ranked prediction.
-
-    Returns the pose, or None with the reason there is none. `validity` maps (ensemble,
-    pose ID) to pb_valid, or is None when PoseBusters was skipped. Ties go to the earlier pose.
+    A complex is an ensemble, or one ligand site of it. `sites` are the site ensembles,
+    `scores` their CORE at each threshold, `pb_records` PoseBusters' verdicts (None when it
+    was skipped) and `references` each pose's RMSD and lDDT-PLI to its reference.
     """
-    if "confidence" not in group["poses"][0]:
-        return None, "no confidences given"
-    if validity is None:
-        return None, "PoseBusters was skipped"
-    valid = [pose for pose in group["poses"] if validity.get((pose["ensemble"], pose["pose_id"])) is True]
-    if not valid:
-        return None, "no PoseBusters-valid pose"
-    return max(valid, key=lambda pose: pose["confidence"]), None
-
-
-def core_table(groups, scores, validity, labels, cutoffs, ranked):
-    """One row per complex and threshold, highest CORE first. A complex is an ensemble, or
-    one ligand site of it, named <ensemble>_site_<n>, when the ligand has several copies.
-
-    `above_<cutoff>` is True when CORE >= cutoff. Top-pose columns appear when confidences
-    were given, and reference columns when references were evaluated.
-    """
-    by_name = {group["ensemble"]: group for group in groups}
-    by_pose = {(label["ensemble"], label["pose_id"]): label for label in labels}
-
-    def correct(pose, threshold):
-        return by_pose.get((pose["ensemble"], pose["pose_id"]), {}).get(correct_column(threshold))
-
-    rows = []
+    validity = None if pb_records is None else {(r["ensemble"], r["pose_id"]): r for r in pb_records}
+    measured = {(r["ensemble"], r["pose_id"]): r for r in references}
+    core = core_columns(scores)
+    sites = sorted(sites, key=lambda site: rank(core[site["name"]]))
+    with_confidence = any("confidence" in site["poses"][0] for site in sites)
+    write_csv(output / "core_scores.csv",
+              without_empty_notes([complex_row(site, core[site["name"]], validity) for site in sites]))
+    write_csv(output / "predictions.csv",
+              without_empty_notes([pose_row(site, pose, core[site["name"]], validity, measured, with_confidence)
+                                   for site in sites for pose in site["poses"]]))
+    by_threshold = {}
     for score in scores:
-        group, core, threshold = by_name[score["ensemble"]], score["core_score"], score["threshold_angstrom"]
-        row = dict(ensemble=score["name"], threshold_angstrom=threshold, core_score=core)
-        for cutoff in cutoffs:
-            row[f"above_{cutoff:g}"] = None if core is None else core >= cutoff
-        row["pose_count"] = score["pose_count"]
-        if validity is not None:
-            row["valid_pose_count"] = sum(validity.get((p["ensemble"], p["pose_id"])) is True for p in group["poses"])
-        note = score["error"]
-        if ranked:
-            pose, reason = top_pose(group, validity)
-            row.update(top_pose=pose["pose_id"] if pose else None, top_pose_confidence=pose["confidence"] if pose else None)
-            note = note or reason
-        if labels:
-            known = [correct(p, threshold) for p in group["poses"]]
-            row["fraction_correct"] = sum(known) / len(known) if all(k is not None for k in known) else None
-            if ranked:
-                row["top_pose_correct"] = correct(pose, threshold) if pose else None
-        row["note"] = note
-        rows.append(row)
-    rows.sort(key=lambda r: (r["threshold_angstrom"], r["core_score"] is None, -(r["core_score"] or 0)))
+        by_threshold.setdefault(score["threshold_angstrom"], []).append(score["core_score"])
+    return by_threshold
+
+
+def core_columns(scores):
+    """Each complex's CORE as columns: core_score, or core_score_<T>A for several thresholds,
+    with the reason when it is missing."""
+    thresholds = list(dict.fromkeys(score["threshold_angstrom"] for score in scores))
+    columns = {}
+    for score in scores:
+        name = "core_score" if len(thresholds) == 1 else f"core_score_{score['threshold_angstrom']:g}A"
+        columns.setdefault(score["name"], {})[name] = score["core_score"]
+        columns[score["name"]]["_error"] = score["error"]
+    return columns
+
+
+def rank(core):
+    """Highest CORE first, by the first threshold; complexes without CORE last."""
+    first = next(value for key, value in core.items() if key != "_error")
+    return (first is None, -(first or 0))
+
+
+def scores_only(core):
+    return {key: value for key, value in core.items() if key != "_error"}
+
+
+def without_empty_notes(rows):
+    """Leave out the note column when nothing needed one."""
+    if not any(row["note"] for row in rows):
+        for row in rows:
+            del row["note"]
     return rows
 
 
-def pose_table(groups, pb_records, labels, ranked):
-    """One row per pose: its confidence, whether PoseBusters passed it and, with references,
-    its RMSD and lDDT-PLI to the reference and whether it is correct.
+def complex_row(site, core, validity):
+    """CORE, how many predictions the complex has and, with PoseBusters, how many are valid."""
+    poses = site["poses"]
+    row = dict(ensemble=site["name"], **scores_only(core), prediction_count=len(poses))
+    if validity is not None:
+        row["valid_prediction_count"] = sum(validity.get((p["ensemble"], p["pose_id"]), {}).get("pb_valid") is True
+                                            for p in poses)
+    row["note"] = core["_error"]
+    return row
 
-    Columns that do not apply are left out, and a blank is unknown. The reference columns
-    are whichever `label_reference_results()` produced, so there is one per threshold.
-    """
-    checks = {(r["ensemble"], r["pose_id"]): r for r in pb_records or []}
-    measured = {(label["ensemble"], label["pose_id"]): label for label in labels}
-    rows = []
-    for group in groups:
-        for pose in group["poses"]:
-            key = (pose["ensemble"], pose["pose_id"])
-            row = dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"])
-            if ranked:
-                row["confidence"] = pose.get("confidence")
-            record = checks.get(key)
-            if pb_records is not None:
-                # True, False, or blank when unknown. Which checks failed is in details/posebusters.json.
-                row["pb_valid"] = record["pb_valid"] if record else None
-            label = measured.get(key, {})
-            for name, value in label.items():
-                if name not in ("ensemble", "pose_id", "error", "radius_fallback_used"):
-                    row[name] = value
-            row["note"] = message(pose.get("error")) or (record or {}).get("error") or message(label.get("error"))
-            rows.append(row)
-    return rows
+
+def pose_row(site, pose, core, validity, measured, with_confidence):
+    """The pose's complex and its CORE, its confidence, PoseBusters' verdict and its scores
+    against the reference. Columns that do not apply are left out, and a blank is unknown."""
+    key = (pose["ensemble"], pose["pose_id"])
+    row = dict(ensemble=site["name"], prediction=pose["pose_id"], **scores_only(core))
+    if with_confidence:
+        row["confidence"] = pose.get("confidence")
+    record = validity.get(key) if validity is not None else None
+    if validity is not None:
+        # Which checks failed is in details/posebusters.json.
+        row["pb_valid"] = record["pb_valid"] if record else None
+    scores = measured.get(key, {})
+    if measured:
+        row.update(rmsd=scores.get("rmsd"), lddt_pli=scores.get("lddt_pli"))
+    row["note"] = message(pose.get("error")) or (record or {}).get("error") or scores.get("error")
+    return row
 
 
 def message(error):

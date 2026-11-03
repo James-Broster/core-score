@@ -3,10 +3,20 @@ library through OST's own discovery or OST_COMPOUNDS_CHEMLIB."""
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 import numpy as np
+
+
+INSTALL = "conda install -c conda-forge -c bioconda openstructure"
+
+
+def require_ost():
+    """Stop before any work when OpenStructure is not installed, saying how to install it."""
+    if shutil.which("ost") is None:
+        raise RuntimeError(f"OpenStructure's ost command was not found. Install it with: {INSTALL}")
 
 
 class OSTError(RuntimeError):

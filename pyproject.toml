@@ -9,8 +9,9 @@ description = "CORE Score: agreement within an ensemble of predicted protein-lig
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-authors = [{name = "Henry Broster"}]
-keywords = ["co-folding", "protein-ligand", "structure prediction", "confidence", "AlphaFold3"]
+authors = [{name = "J. Henry Broster"}]
+keywords = ["co-folding", "protein-ligand", "structure prediction", "confidence", "AlphaFold3",
+            "Machine Learning", "Drug Discovery", "Reliability"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",

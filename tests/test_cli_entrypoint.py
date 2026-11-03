@@ -13,7 +13,7 @@ def test_direct_structures(values):
     assert not args.skip_posebusters and args.workers == 1
 
 
-@pytest.mark.parametrize("name", ["poses.csv", "poses.CSV"])
+@pytest.mark.parametrize("name", ["inputs.csv", "inputs.CSV"])
 def test_csv_input(name):
     args = parser().parse_args([name, "--out", "results", "--skip-posebusters"])
     assert args.inputs == [Path(name)]
@@ -25,7 +25,7 @@ def test_help(words, capsys):
     with pytest.raises(SystemExit) as exc:
         main(words)
     assert exc.value.code == 0
-    assert "inputs.csv" in capsys.readouterr().out
+    assert "core_score_input.csv" in capsys.readouterr().out
 
 
 def test_python_run_loads_inputs_then_executes(tmp_path):
@@ -34,9 +34,9 @@ def test_python_run_loads_inputs_then_executes(tmp_path):
 
     with patch("core_score.pipeline.load_inputs", return_value=["groups"]) as load, \
             patch("core_score.pipeline.execute", return_value="summary") as execute:
-        assert core_score.run("inputs.csv", tmp_path, smiles="CCO", workers=4) == "summary"
+        assert core_score.run("inputs.csv", tmp_path, ligand="CCO", workers=4) == "summary"
     assert load.call_args.args[0] == ["inputs.csv"]
-    assert load.call_args.kwargs["smiles"] == "CCO"
+    assert load.call_args.kwargs["ligand"] == "CCO"
     assert execute.call_args.args == (["groups"], tmp_path)
     assert execute.call_args.kwargs == dict(workers=4)
 
