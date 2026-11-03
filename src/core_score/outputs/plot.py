@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-#: Tried in turn for the figure's type. Optima is the paper's face; the rest are the
-#: nearest humanist sans faces on other machines, then whatever matplotlib has.
-FONTS = ("Optima", "Optima nova LT Pro", "Gill Sans", "Gill Sans MT", "Candara",
-         "Trebuchet MS", "Nimbus Sans", "DejaVu Sans")
+FONT = "Optima"  # the paper's typeface; matplotlib's default is used where it is missing
 INK, MUTED, LINE, DOT = "#16232b", "#5c6b73", "#c8ccce", "#2f6f8f"
 
 
@@ -35,12 +32,12 @@ def plot_core_scores(rows, output, cutoffs=()):
 
 
 def style(matplotlib):
-    """Plain, light and airy: hairline axes, horizontal rules only, and the first of FONTS
-    this machine actually has."""
+    """Plain, light and airy: hairline axes, horizontal rules only, set in Optima if this
+    machine has it."""
     available = {font.name for font in matplotlib.font_manager.fontManager.ttflist}
-    family = [name for name in FONTS if name in available] or list(FONTS)
+    font = {"font.family": "sans-serif", "font.sans-serif": [FONT]} if FONT in available else {}
     return {
-        "font.family": "sans-serif", "font.sans-serif": family, "font.size": 12,
+        **font, "font.size": 12,
         "text.color": INK, "axes.labelcolor": MUTED, "axes.labelsize": 12.5,
         "axes.edgecolor": LINE, "axes.linewidth": 1.0,
         "axes.spines.top": False, "axes.spines.right": False,

@@ -5,7 +5,7 @@ How a run moves through `core_score`. Every diagram reads the same way:
 - It runs top to bottom, one rung per step.
 - Each rung lists its functions left to right, in the order they run.
 - The rounded boxes between rungs are what's handed to the next step.
-- Dashed boxes are files written. Amber functions call OpenStructure through `ost.py`.
+- Dashed boxes are files written. Amber functions call OpenStructure through `analysis/ost.py`.
 
 `pipeline.execute()` runs the rungs of the first diagram in order. The result files go
 in the output folder and everything behind them in `details/`.
@@ -21,56 +21,56 @@ flowchart TB
     classDef file fill:#f3f3f3,stroke:#9a9a9a,color:#444,stroke-dasharray:3 3
     classDef stage fill:#f7f9fb,stroke:#c9d2dc,color:#1b2430
 
-    start(["core-score inputs.json --out results/<br/>or core_score.run()"]):::data
+    start(["core-score inputs.csv --out results/<br/>or core_score.run()"]):::data
 
-    subgraph R1["1 · inputs.py"]
+    subgraph R1["1 · inputs/inputs.py"]
         direction LR
-        a1["load_inputs()"]:::fn --> a2["make_group()"]:::fn --> a3["make_pose()"]:::fn --> a4["template_mol()<br/>every SMILES"]:::fn
+        a1["load_inputs()"]:::fn --> a2["read_csv()"]:::fn --> a3["make_group()"]:::fn --> a4["make_poses()"]:::fn
     end
     d1(["ensembles"]):::data
 
-    subgraph R2["2 · preparation.py"]
+    subgraph R2["2 · inputs/prepare.py"]
         direction LR
-        b1["prepare_groups()"]:::fn --> b2["prepare()"]:::fn --> b3["prepare_pose()"]:::fn --> b4["detects_ligands()"]:::ost --> b5[/"prepared/ · prepared_manifest.json"/]:::file
+        b1["prepare_groups()"]:::fn --> b2["prepare()"]:::fn --> b3["prepare_pose()"]:::fn --> b4["reads_ligand()"]:::ost --> b5[/"prepared/ · prepared_manifest.json"/]:::file
     end
     d2(["prepared poses"]):::data
 
-    subgraph R3["3 · posebusters.py"]
+    subgraph R3["3 · analysis/posebusters.py"]
         direction LR
         c1["run_posebusters()"]:::fn --> c2["check_pose()"]:::fn --> c3["check_copy()"]:::fn --> c4[/"posebusters.json"/]:::file
     end
     d3(["prepared poses and pb_valid"]):::data
 
-    subgraph R4["4 · site_assignment.py"]
+    subgraph R4["4 · inputs/sites.py"]
         direction LR
         e1["prepare_site_groups()"]:::fn --> e2["split_sites()"]:::fn --> e3["align_copy_centres()"]:::ost --> e4["assign_sites()"]:::fn --> e5[/"sites.json"/]:::file
     end
     d4(["one ensemble per site"]):::data
 
-    subgraph R5["5 · comparison.py"]
+    subgraph R5["5 · analysis/pairs.py"]
         direction LR
         g1["compare_groups()"]:::fn --> g2["pair_tasks()"]:::fn --> g3["pair_job()"]:::fn --> g4["compare_pair()"]:::ost --> g5["summarize()"]:::fn --> g6[/"pairs.csv · ligand_details.jsonl"/]:::file
     end
     d5(["one row per pair"]):::data
 
-    subgraph R6["6 · scoring.py"]
+    subgraph R6["6 · analysis/core.py"]
         direction LR
         h1["score_groups()"]:::fn --> h2["build_matrix()"]:::fn --> h3["core_score()"]:::fn
     end
     d6(["CORE per complex and T"]):::data
 
-    subgraph R7["7 · evaluation.py"]
+    subgraph R7["7 · analysis/reference.py"]
         direction LR
-        i1["evaluate_groups()<br/>with --evaluate-reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json"/]:::file
+        i1["evaluate_groups()<br/>ensembles with a reference"]:::fn --> i2["prepare()<br/>the reference"]:::fn --> i3["run_pair_tasks()"]:::ost --> i4["label_reference_results()"]:::fn --> i5[/"reference_details.json"/]:::file
     end
     d7(["CORE and reference labels"]):::data
 
-    subgraph R8["8 · report.py"]
+    subgraph R8["8 · outputs/report.py"]
         direction LR
         j1["write_report()"]:::fn --> j2["core_table()"]:::fn --> j3["top_pose()"]:::fn --> j4["pose_table()"]:::fn --> j5[/"core_scores.csv · poses.csv"/]:::file
     end
 
-    subgraph R9["9 · plotting.py and pipeline.py"]
+    subgraph R9["9 · outputs/plot.py and pipeline.py"]
         direction LR
         k0["plot_core_scores()<br/>with --plot"]:::fn --> k1[/"core_scores.png"/]:::file --> k2["summarize_run()"]:::fn --> k3[/"status.json · exit code"/]:::file
     end
@@ -81,6 +81,9 @@ flowchart TB
 ```
 
 ## 1 · Inputs
+
+`core-score-csv` writes the CSV beforehand, from a folder of predictions. It is its own
+command and not part of a run. [Its section](#core-score-csv) lists its functions.
 
 ```mermaid
 %%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 18, "rankSpacing": 28, "subGraphTitleMargin": {"top": 6, "bottom": 10}}}}%%
@@ -97,21 +100,21 @@ flowchart TB
     end
     d1(["paths and settings"]):::data
 
-    subgraph I2["inputs.py · read"]
+    subgraph I2["inputs/inputs.py · read"]
         direction LR
-        b1["load_inputs()"]:::fn --> b2["read_manifest()<br/>or one ensemble from the structure files"]:::fn
+        b1["load_inputs()"]:::fn --> b2["read_csv()<br/>or one row per structure file"]:::fn
     end
-    d2(["raw ensembles"]):::data
+    d2(["rows, gathered by ensemble"]):::data
 
-    subgraph I3["inputs.py · build"]
+    subgraph I3["inputs/inputs.py · build"]
         direction LR
-        c1["make_group()"]:::fn --> c2["make_pose()"]:::fn --> c3["resolve()<br/>every path must exist"]:::fn
+        c1["make_group()<br/>one SMILES and reference,<br/>SMILES parses"]:::fn --> c2["make_poses()<br/>wildcards expanded"]:::fn --> c3["resolve()<br/>every path must exist"]:::fn
     end
-    d3(["ensembles, poses sorted by seed, sample, pose_id"]):::data
+    d3(["ensembles, poses sorted by path"]):::data
 
-    subgraph I4["inputs.py · finish"]
+    subgraph I4["inputs/inputs.py · finish"]
         direction LR
-        e1["make_reference()<br/>with --evaluate-reference"]:::fn --> e2["template_mol()<br/>every pose's SMILES"]:::fn
+        e1["at least four poses<br/>per ensemble"]:::fn
     end
     d4(["ensembles, handed to pipeline.execute()"]):::data
 
@@ -122,8 +125,8 @@ flowchart TB
 
 ## 2 · Preparation
 
-The functions in this stage come from `stages/preparation.py` and the helpers in
-`structure/`.
+The functions in this stage come from `inputs/prepare.py` and the helpers in
+`inputs/structures.py`.
 
 ```mermaid
 %%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 18, "rankSpacing": 28, "subGraphTitleMargin": {"top": 6, "bottom": 10}}}}%%
@@ -136,15 +139,15 @@ flowchart TB
 
     start(["one ensemble's poses"]):::data
 
-    subgraph P1["preparation.py"]
+    subgraph P1["inputs/prepare.py"]
         direction LR
         a1["prepare_groups()"]:::fn --> a2["prepare()<br/>each pose"]:::fn --> a3["pose_directory()"]:::fn --> a4["prepare_pose()"]:::fn
     end
     d1(["one pose and its folder"]):::data
 
-    subgraph P2["cif.py · read"]
+    subgraph P2["inputs/structures.py · read"]
         direction LR
-        b1["read_document()<br/>CIF, or PDB converted"]:::fn
+        b1["read_document()<br/>CIF, or PDB converted"]:::fn --> b2["merge_identical_entities()<br/>one entity per sequence"]:::fn
     end
 
     subgraph P3["from_structure() · pick"]
@@ -153,7 +156,7 @@ flowchart TB
     end
     d3(["selected ligand residues"]):::data
 
-    subgraph P4["sdf.py · each copy"]
+    subgraph P4["inputs/structures.py · each copy"]
         direction LR
         m1["make_ligand()"]:::fn --> m2["coordinate_mol()"]:::fn --> m3["graph from native_graph(),<br/>else the peer cache,<br/>else bonds from coordinates"]:::fn --> m4["matched_template()<br/>SMILES chemistry onto the atoms"]:::fn --> m5["identity, coordinate<br/>and atom order checks"]:::fn
     end
@@ -166,23 +169,23 @@ flowchart TB
 
     subgraph P6["from_original_sdfs()"]
         direction LR
-        o1["read_original()<br/>matches the SMILES"]:::fn --> o2["same_atoms()<br/>finds the residue it replaces"]:::fn
+        o1["read_original()<br/>matches the SMILES"]:::fn --> o2["same_atoms()<br/>finds the residue it replaces"]:::fn --> o3["write pose.cif"]:::fn
     end
     d5(["copy records"]):::data
 
-    subgraph P7["cif.py · receptor"]
+    subgraph P7["inputs/structures.py · receptor"]
         direction LR
         r1["write_receptor()"]:::fn --> r2[/"pose.receptor.pdb"/]:::file
     end
     d6(["prepared record"]):::data
 
-    subgraph P8["preparation.py · OST"]
+    subgraph P8["inputs/prepare.py · OST"]
         direction LR
-        t1["detects_ligands()<br/>structure route only"]:::ost --> t2["compare_ligands()<br/>with itself"]:::ost --> t3["if OST can't see the ligand,<br/>use the ost.sdf files"]:::fn
+        t1["reads_ligand()<br/>structure route only"]:::ost --> t2["compare_ligands()<br/>with its own SDFs"]:::ost --> t3["if OST can't read it or connects it differently,<br/>use the ost.sdf files"]:::fn
     end
     d7(["prepared pose, or pose with an error"]):::data
 
-    subgraph P9["preparation.py · retry"]
+    subgraph P9["inputs/prepare.py · retry"]
         direction LR
         f1["retry poses with a pb_error<br/>once the peer cache is full"]:::fn --> f2[/"prepared_manifest.json"/]:::file
     end
@@ -209,19 +212,19 @@ flowchart TB
 
     start(["prepared poses"]):::data
 
-    subgraph B1["posebusters.py · setup"]
+    subgraph B1["analysis/posebusters.py · setup"]
         direction LR
         a1["run_posebusters()"]:::fn --> a2["PoseBusters(config='dock')"]:::fn --> a3["dock_checks()"]:::fn --> a4["normalized()"]:::fn
     end
     d1(["names of the 21 dock checks"]):::data
 
-    subgraph B2["posebusters.py · check"]
+    subgraph B2["analysis/posebusters.py · check"]
         direction LR
         c1["check_pose()<br/>each pose"]:::fn --> c2["check_copy()<br/>each ligand copy"]:::fn --> c3["buster.bust()<br/>pb.sdf against the receptor"]:::fn --> c4["aggregate()<br/>False, then unknown, then True"]:::fn
     end
     d2(["pb_valid and every check, per copy and pose"]):::data
 
-    subgraph B3["posebusters.py · write"]
+    subgraph B3["analysis/posebusters.py · write"]
         direction LR
         e1["write_json()"]:::fn --> e2[/"posebusters.json"/]:::file
     end
@@ -250,7 +253,7 @@ flowchart TB
 
     subgraph S1["site_assignment · check"]
         direction LR
-        a1["prepare_site_groups()"]:::fn --> a2["no failed poses,<br/>same copy count"]:::fn --> a3["one copy:<br/>passes through as site 1"]:::fn
+        a1["prepare_site_groups()"]:::fn --> a2["no failed poses,<br/>same copy count"]:::fn --> a3["one copy<br/>passes through, named for the ensemble"]:::fn
     end
     d1(["ensembles with k copies per pose"]):::data
 
@@ -268,7 +271,7 @@ flowchart TB
 
     subgraph S4["site_assignment · split"]
         direction LR
-        e1["site_pose()<br/>one copy per site"]:::fn --> e2["filter_records()<br/>siteN.cif"]:::fn --> e3[/"sites.json"/]:::file
+        e1["site_pose()<br/>one copy per site"]:::fn --> e2["filter_records()<br/>siteN.cif"]:::fn --> e3["named<br/>ensemble_site_N"]:::fn --> e4[/"sites.json"/]:::file
     end
     d4(["one ensemble per site"]):::data
 
@@ -290,13 +293,13 @@ flowchart TB
 
     start(["one ensemble per site"]):::data
 
-    subgraph C1["comparison.py · pairs"]
+    subgraph C1["analysis/pairs.py · pairs"]
         direction LR
         a1["compare_groups()"]:::fn --> a2["pair_tasks()<br/>every pair, earlier pose is the model"]:::fn
     end
     d1(["list of pairs"]):::data
 
-    subgraph C2["comparison.py · run"]
+    subgraph C2["analysis/pairs.py · run"]
         direction LR
         b1["run_pair_tasks()<br/>serial or --workers processes"]:::fn --> b2["pair_job()<br/>a crash becomes an error row"]:::fn --> b3["compare_pair()"]:::fn
     end
@@ -308,7 +311,7 @@ flowchart TB
     end
     d3(["every OST attempt"]):::data
 
-    subgraph C4["comparison.py · row"]
+    subgraph C4["analysis/pairs.py · row"]
         direction LR
         e1["summarize()<br/>values only if one ligand pair assigned,<br/>lDDT-PLI from the 4 Å call"]:::fn --> e2[/"pairs.csv · ligand_details.jsonl"/]:::file
     end
@@ -330,7 +333,7 @@ flowchart TB
 
     start(["one row per pair"]):::data
 
-    subgraph K1["scoring.py"]
+    subgraph K1["analysis/core.py"]
         direction LR
         a1["score_groups()"]:::fn --> a2["build_matrix()<br/>every pair usable, or no score"]:::fn --> a3["core_score(matrix, T)<br/>for each T"]:::fn
     end
@@ -343,7 +346,7 @@ flowchart TB
 
 ## 7 · Reference evaluation
 
-Only with `--evaluate-reference`. Nothing here feeds back into CORE.
+Only for ensembles with a reference. Nothing here feeds back into CORE.
 
 ```mermaid
 %%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 18, "rankSpacing": 28, "subGraphTitleMargin": {"top": 6, "bottom": 10}}}}%%
@@ -356,21 +359,21 @@ flowchart TB
 
     start(["prepared poses"]):::data
 
-    subgraph E1["evaluation.py · prepare"]
+    subgraph E1["analysis/reference.py · prepare"]
         direction LR
         a1["evaluate_groups()"]:::fn --> a2["prepare()<br/>same as the predictions"]:::fn
     end
     d1(["prepared reference"]):::data
 
-    subgraph E2["comparison.py"]
+    subgraph E2["analysis/pairs.py"]
         direction LR
         b1["run_pair_tasks()"]:::fn --> b2["compare_pair()<br/>each pose against the reference"]:::ost
     end
-    d2(["RMSD of each pose to the reference"]):::data
+    d2(["RMSD and lDDT-PLI of each pose to the reference"]):::data
 
-    subgraph E3["evaluation.py · label"]
+    subgraph E3["analysis/reference.py · label"]
         direction LR
-        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T"]:::fn
+        c1["write_json()"]:::fn --> c2[/"reference_details.json"/]:::file --> c3["label_reference_results()<br/>correct means RMSD < T and lDDT-PLI > 0.8"]:::fn
     end
     d3(["one label row per pose"]):::data
 
@@ -391,24 +394,24 @@ flowchart TB
 
     start(["prepared poses, PoseBusters records,<br/>CORE scores, reference labels"]):::data
 
-    subgraph D1["report.py · setup"]
+    subgraph D1["outputs/report.py · setup"]
         direction LR
         a1["write_report()"]:::fn --> a2["pb_valid by<br/>ensemble and pose"]:::fn
     end
     d1(["validity lookup"]):::data
 
-    subgraph D2["report.py · complexes"]
+    subgraph D2["outputs/report.py · complexes"]
         direction LR
         b1["core_table()"]:::fn --> b2["top_pose()<br/>valid pose with highest confidence"]:::fn --> b3["above each cutoff<br/>CORE ≥ cutoff"]:::fn --> b4[/"core_scores.csv"/]:::file
     end
     d2(["one row per complex and T"]):::data
 
-    subgraph D3["report.py · poses"]
+    subgraph D3["outputs/report.py · poses"]
         direction LR
         c1["pose_table()<br/>confidence, validity and reference<br/>for every pose"]:::fn --> c2[/"poses.csv"/]:::file
     end
 
-    subgraph D4["plotting.py"]
+    subgraph D4["outputs/plot.py"]
         direction LR
         e1["plot_core_scores()<br/>with --plot"]:::fn --> e2["a dot per complex,<br/>ordered by CORE"]:::fn --> e3[/"core_scores.png"/]:::file
     end
@@ -427,31 +430,32 @@ run carries on.
 | Where | Check | If it fails |
 | --- | --- | --- |
 | `cli.py` | Thresholds are finite and positive, cutoffs are between 0 and 1, workers is at least 1 | Usage error |
-| `inputs.py` | The manifest has an `ensembles` list, each with a unique name and poses with a `path` | Exit 2 |
-| `inputs.py` | Pose IDs are unique within an ensemble | Exit 2 |
-| `inputs.py` | `confidence` is given for every pose of an ensemble or for none | Exit 2 |
-| `inputs.py` | Every structure, SDF and reference file exists | Exit 2 |
-| `inputs.py` | A reference is given for every ensemble, only with `--evaluate-reference` | Exit 2 |
-| `inputs.py` | Every pose's SMILES parses and has heavy atoms | Exit 2 |
+| `inputs/inputs.py` | The CSV has the columns `ensemble`, `smiles` and `poses`, filled on every row, and no unknown columns | Exit 2 |
+| `inputs/inputs.py` | Every row of an ensemble gives the same SMILES and reference, and no structure is listed twice | Exit 2 |
+| `inputs/inputs.py` | A row with a `confidence` or `ligand_sdf` names one structure | Exit 2 |
+| `inputs/inputs.py` | `confidence` is given for every pose of an ensemble or for none | Exit 2 |
+| `inputs/inputs.py` | Every structure, SDF and reference file exists, and every wildcard matches a file | Exit 2 |
+| `inputs/inputs.py` | Every ensemble's SMILES parses and has heavy atoms | Exit 2 |
+| `inputs/inputs.py` | Every ensemble has at least four poses | Exit 2 |
 | `pipeline.py` | The output folder is new or empty | Exit 2 |
-| `structure/cif.py` | One structural model per file, with atom records | Pose error |
-| `structure/chemistry.py` | Requested chains exist, the ligand is unambiguous and present, selected copies share one composition, no duplicate atom names | Pose error |
-| `structure/chemistry.py` | Ligand coordinates are finite, native bond orders are supported | Pose error |
-| `structure/sdf.py` | A native AF3 SMILES matches the supplied SMILES | Pose error |
-| `structure/sdf.py` | The PoseBusters molecule matches the SMILES graph, sanitizes, and keeps identity, coordinates and atom order | `pb_error`, PoseBusters unknown, pose still scored |
-| `structure/sdf.py` | Written SDFs reread with the same coordinates. Supplied SDFs hold one molecule with coordinates that matches the SMILES | Pose error |
-| `structure/cif.py` | The filtered structure rereads with every kept record unchanged | Pose error |
-| `ost.py` | OST can read the prepared structure | Pose error |
-| `posebusters.py` | Every dock check passes on every copy. Unknown is never a pass | `pb_valid` False or unknown |
-| `site_assignment.py` | No pose in the ensemble failed preparation | Ensemble blocked |
-| `site_assignment.py` | Every pose has the same number of ligand copies | Ensemble blocked |
-| `ost.py`, `site_assignment.py` | OST superposes each pose onto the anchor, and site assignment converges | Ensemble blocked |
-| `comparison.py` | OST succeeds and assigns exactly one ligand pair | Pair error |
-| `comparison.py` | Only binding-site failures are retried at a larger radius | Other failures stay failed |
-| `scoring.py` | Every pair has a usable RMSD, and there are at least two poses | No CORE, reason saved |
-| `evaluation.py` | The reference and the prediction both prepared, and the RMSD is known | Label unknown (blank) |
-| `report.py` | Confidences given, PoseBusters run, and at least one valid pose | No top pose, `note` says why |
-| `plotting.py` | matplotlib is installed, only with `--plot` | ImportError, after the files are written |
+| `inputs/structures.py` | One structural model per file, with atom records | Pose error |
+| `inputs/structures.py` | Requested chains exist, the ligand is present, selected copies share one composition, no duplicate atom names | Pose error |
+| `inputs/structures.py` | Ligand coordinates are finite, native bond orders are supported | Pose error |
+| `inputs/structures.py` | A native AF3 SMILES matches the supplied SMILES | Pose error |
+| `inputs/structures.py` | The PoseBusters molecule matches the SMILES graph, sanitizes, and keeps identity, coordinates and atom order | `pb_error`, PoseBusters unknown, pose still scored |
+| `inputs/structures.py` | Written SDFs reread with the same coordinates. Supplied SDFs hold one molecule with coordinates that matches the SMILES | Pose error |
+| `inputs/structures.py` | The filtered structure rereads with every kept record unchanged | Pose error |
+| `analysis/ost.py` | OST can read the prepared structure | Pose error |
+| `analysis/posebusters.py` | Every dock check passes on every copy. Unknown is never a pass | `pb_valid` False or unknown |
+| `inputs/sites.py` | No pose in the ensemble failed preparation | Ensemble blocked |
+| `inputs/sites.py` | Every pose has the same number of ligand copies | Ensemble blocked |
+| `analysis/ost.py`, `inputs/sites.py` | OST superposes each pose onto the anchor, and site assignment converges | Ensemble blocked |
+| `analysis/pairs.py` | OST succeeds and assigns exactly one ligand pair | Pair error |
+| `analysis/pairs.py` | Only binding-site failures are retried at a larger radius | Other failures stay failed |
+| `analysis/core.py` | Every pair has a usable RMSD, and there are at least four poses | No CORE, reason saved |
+| `analysis/reference.py` | The reference and the prediction both prepared, and the RMSD and lDDT-PLI are known | Label unknown (blank) |
+| `outputs/report.py` | Confidences given, PoseBusters run, and at least one valid pose | No top pose, `note` says why |
+| `outputs/plot.py` | matplotlib is installed, only with `--plot` | ImportError, after the files are written |
 | `pipeline.py` | Nothing above left anything incomplete | Exit 1 |
 
 ## Every function
@@ -463,15 +467,25 @@ run carries on.
 | `parser()` | Defines every flag. |
 | `positive`, `fraction`, `worker_count` | Argument types for thresholds, cutoffs and workers. |
 
-### `inputs.py`
+### `inputs/inputs.py`
 | Function | Does |
 | --- | --- |
-| `load_inputs(inputs, ...)` | Turns one JSON path or a list of structures into ensembles. Checks every SMILES. Loads references only when evaluating. |
-| `read_manifest(path)` | Reads the JSON and checks its shape once, with one error message. |
-| `make_group(ensemble, base, defaults)` | Builds an ensemble's poses, checks unique pose IDs and all-or-none confidences, sorts by `(seed, sample, pose_id)`. |
-| `make_pose(record, ...)` | One pose record with settings filled from the ensemble and command line. |
-| `make_reference(reference, group, base)` | The reference as a pose record with `pose_id` "reference". |
+| `load_inputs(inputs, ...)` | Turns one CSV, or a list of structures, into ensembles of at least four poses. |
+| `read_csv(path)` | Reads the CSV and checks its columns and required cells, with one error message. |
+| `make_group(name, rows, base)` | One ensemble from its rows. Checks one SMILES and reference, that the SMILES parses, no structure twice and all-or-none confidences. Sorts poses by path. |
+| `make_poses(name, row, base)` | The poses one row names, expanding a wildcard. Pose IDs are paths relative to the CSV. |
 | `resolve(base, path)` | Absolute path that must exist. |
+
+### `inputs/make_csv.py`, the `core-score-csv` command <a id="core-score-csv"></a>
+| Function | Does |
+| --- | --- |
+| `main(argv)` | Parses the command, writes the CSV, prints what it found. Returns 2 if anything is wrong, listing every problem. |
+| `build_rows(predictions, smiles_csv, output, references)` | One row per pose of every ensemble folder, with confidence and reference where found. |
+| `find_poses(folder)` | Structure files in the folder tree, each set of coordinates once, the deepest copy kept. |
+| `confidence_file(structure)` | The model and confidence file written beside a structure, by `CONFIDENCE_FILES`. |
+| `ligand_iptm(structure, smiles, rows, scores)` | Mean chain-pair ipTM between the ligand's chains and the receptor chains. |
+| `af3_or_protenix`, `boltz`, `chai`, `openfold3` | Read each model's chain-pair ipTM. |
+| `read_smiles(path)`, `relative(path, output)` | The ensemble,smiles CSV, and paths relative to the output CSV. |
 
 ### `pipeline.py`
 | Function | Does |
@@ -480,7 +494,7 @@ run carries on.
 | `execute(groups, output, ...)` | Runs every stage in order and writes `details/run.json` and `details/status.json`. |
 | `summarize_run(...)` | Counts incomplete scores, failed pairs, blocked ensembles and unknown reference labels. |
 
-### `results.py`
+### `outputs/files.py`
 | Function | Does |
 | --- | --- |
 | `clean(value)` | Makes values JSON-safe. NaN and pandas NA become None. |
@@ -489,26 +503,26 @@ run carries on.
 | `diagnostic(stage, exc, ...)` | The failure record: stage, error, traceback, evidence. |
 | `pose_directory(output, pose)` | `prepared/<hash>/` for a pose. |
 
-### `ost.py`
+### `analysis/ost.py`
 | Function | Does |
 | --- | --- |
 | `execute(arguments, timeout)` | Runs `ost ... -o file` and returns its JSON and the command, return code and output. |
-| `compare_ligands(model, reference, timeout, radius)` | `compare-ligand-structures` for one pair. |
-| `detects_ligands(prepared, timeout)` | Self-comparison: does OST find the ligand by itself? |
+| `compare_ligands(model, reference, timeout, radius, lddt_pli)` | `compare-ligand-structures` for one pair, with lDDT-PLI only for references. |
+| `reads_ligand(prepared, timeout)` | Does OST read every ligand copy from the structure, connected as in the package's SDFs? |
 | `superpose(model_path, reference_path, timeout)` | `compare-structures --rigid-scores` transform. |
 | `OSTError` | Error carrying the OST evidence. |
 
-### `stages/preparation.py`
+### `inputs/prepare.py`
 | Function | Does |
 | --- | --- |
 | `prepare_groups(groups, output)` | Prepares every pose, retries poses whose chemistry failed once the peer cache is full, writes `prepared_manifest.json`. |
 | `prepare(pose, destination, ...)` | Prepares one pose and asks OST whether it sees the ligand. Returns the pose with `prepared`, or with `error`. Also used for references. |
 | `prepare_pose(pose, destination, cache)` | Picks a route, then writes the receptor. Returns the prepared record. |
 | `from_structure(...)` | Selects ligand residues, builds OST and PoseBusters SDFs per copy, writes the filtered structure. |
-| `from_original_sdfs(...)` | Uses supplied SDFs and finds which structure residues they replace. |
+| `from_original_sdfs(...)` | Uses supplied SDFs, finds which structure residues they replace and writes the structure. |
 | `same_atoms(rows, mol)` | Whether a residue holds the molecule's atoms at the same coordinates. |
 
-### `stages/posebusters.py`
+### `analysis/posebusters.py`
 | Function | Does |
 | --- | --- |
 | `run_posebusters(groups, output)` | Checks every pose and writes `posebusters.json`. Removes nothing. |
@@ -518,16 +532,16 @@ run carries on.
 | `check_pose(buster, checks, pose)` | Validity of one pose, and each check's result, across its copies. |
 | `check_copy(buster, checks, copy, receptor)` | Runs PoseBusters on one copy. |
 
-### `stages/site_assignment.py`
+### `inputs/sites.py`
 | Function | Does |
 | --- | --- |
-| `prepare_site_groups(groups, output)` | Blocks ensembles with failed poses or mismatched copy counts, passes one-copy ensembles through, splits the rest. |
+| `prepare_site_groups(groups, output)` | Blocks ensembles with failed poses or mismatched copy counts, passes one-copy ensembles through, splits the rest and names each site `<ensemble>_site_<n>`. |
 | `split_sites(group, copies, output)` | One ensemble per site, and the report for `sites.json`. |
 | `align_copy_centres(poses)` | Copy centres in the anchor pose's frame. |
 | `assign_sites(points, k)` | Site label per copy, one copy per site per pose. |
 | `site_pose(pose, copy, destination)` | The pose cut to one copy. |
 
-### `stages/comparison.py`
+### `analysis/pairs.py`
 | Function | Does |
 | --- | --- |
 | `compare_groups(groups, output, ...)` | Runs every pair and writes `pairs.csv` and `ligand_details.jsonl`. |
@@ -538,30 +552,30 @@ run carries on.
 | `summarize(result)` | Metrics only when exactly one ligand pair was assigned. |
 | `usable(score)`, `binding_site_failure(result)` | A finite non-negative score, and a binding-site reason. |
 
-### `stages/scoring.py`
+### `analysis/core.py`
 | Function | Does |
 | --- | --- |
 | `score_groups(groups, rows, thresholds)` | CORE per site ensemble and T, or the reason it's missing. |
 | `build_matrix(pose_ids, rows)` | Pairwise RMSD matrix. Raises unless every pair is usable. |
-| `core_score(matrix, threshold)` | 1 − mean of min(closest other pose RMSD, T) / T. |
+| `core_score(matrix, threshold, neighbours)` | 1 − mean of min(RMSD, T) / T over each pose's three closest other poses. Raises with fewer than four poses. |
 
-### `stages/evaluation.py`
+### `analysis/reference.py`
 | Function | Does |
 | --- | --- |
-| `evaluate_groups(groups, output, thresholds, ...)` | Prepares each reference, compares every pose with it, writes `reference_details.json`. Returns one label row per pose, in input order, for `poses.csv`. |
-| `label_reference_results(records, thresholds)` | Correct means RMSD < T. Failed or ambiguous is unknown. |
-| `correct_column(threshold)` | The `poses.csv` column name, such as `rmsd_below_2A`. |
+| `evaluate_groups(groups, output, thresholds, ...)` | For ensembles with a reference, prepares it, compares every pose with it, writes `reference_details.json`. Returns one label row per pose, in path order, for `poses.csv`. |
+| `label_reference_results(records, thresholds)` | Correct means RMSD < T and lDDT-PLI > 0.8. Failed, ambiguous or missing either score is unknown. |
+| `correct_column(threshold)` | The `poses.csv` column name, such as `correct_2A`. |
 
-### `stages/report.py`
+### `outputs/report.py`
 | Function | Does |
 | --- | --- |
 | `write_report(groups, scores, pb_records, labels, output, cutoffs)` | Writes `core_scores.csv` and `poses.csv`. |
 | `top_pose(group, validity)` | The PoseBusters-valid pose with the highest confidence, or the reason there is none. |
 | `core_table(...)` | One row per complex and T: CORE, above each cutoff, pose counts, the top pose, and reference results. |
-| `pose_table(groups, pb_records, labels, ranked)` | One row per pose: confidence, PoseBusters validity and reference RMSD. |
+| `pose_table(groups, pb_records, labels, ranked)` | One row per pose: confidence, PoseBusters validity, and reference RMSD, lDDT-PLI and correctness. |
 | `message(error)` | The one-line message of a diagnostic record. |
 
-### `stages/plotting.py`
+### `outputs/plot.py`
 | Function | Does |
 | --- | --- |
 | `plot_core_scores(rows, output, cutoffs)` | `core_scores.png` per T: a dot per complex, ordered by CORE Score, with a line at each cutoff. Imports matplotlib only when called. |
@@ -569,27 +583,28 @@ run carries on.
 | `draw(axes, scores, threshold, cutoffs)` | The dots, the cutoff lines and their labels. |
 | `dot_size(count)` | Smaller dots for bigger benchmarks. |
 
-### `structure/cif.py`
+### `inputs/structures.py`
 | Function | Does |
 | --- | --- |
 | `read_document(path)` | Reads CIF, or converts PDB, requiring one model. |
+| `merge_identical_entities(doc)` | Gives polymer chains with the same sequence one entity, so OST can swap identical chains. Only entity IDs change. |
 | `atom_rows(doc)` | Atom records as dictionaries. |
 | `residue_key(row)` | (chain, number, insertion code, residue name). |
 | `ligand_residues(doc)` | Nonpolymer residues and their atoms. |
 | `filter_records(doc, selected, destination)` | Writes the structure without unselected ligands and checks every kept record is unchanged. |
 | `write_receptor(source, ligands, destination)` | Writes the PoseBusters receptor without the selected ligands. |
 
-### `structure/chemistry.py`
+
 | Function | Does |
 | --- | --- |
 | `template_mol(smiles)` | Heavy-atom molecule from SMILES. Raises if missing, invalid or without heavy atoms. |
 | `heavy_atoms`, `atom_name`, `composition` | Small helpers on atom records. |
-| `choose_ligands(doc, pose)` | Ligand residues picked by chain, residue number and SMILES composition. Raises on ambiguity, absence, mixed compositions or duplicate atom names. |
+| `choose_ligands(doc, pose)` | Ligand residues picked by chain and SMILES composition. Raises on absence, mixed compositions or duplicate atom names. |
 | `coordinate_mol(rows)` | Molecule with atoms and coordinates only. |
-| `identity(mol)` | Canonical SMILES without stereo, for comparing chemistry. |
+| `canonical_smiles(mol)` | Canonical SMILES without stereo, for comparing chemistry. |
 | `native_graph(doc, rows)` | Bonds from the structure's bond table or AF3's SMILES and atom names, if present. |
 
-### `structure/sdf.py`
+
 | Function | Does |
 | --- | --- |
 | `make_ligand(doc, rows, smiles, cache, ensemble)` | The OST molecule and the PoseBusters molecule for one copy, with provenance, or the PoseBusters error. |

@@ -1,8 +1,8 @@
 """Write the two files a user reads: core_scores.csv, one row per complex, and poses.csv,
 one row per pose. Everything behind them is in details/."""
 
-from core_score.results import write_csv
-from core_score.stages.evaluation import correct_column
+from core_score.outputs.files import write_csv
+from core_score.analysis.reference import correct_column
 
 
 def write_report(groups, scores, pb_records, labels, output, cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9)):
@@ -33,7 +33,8 @@ def top_pose(group, validity):
 
 
 def core_table(groups, scores, validity, labels, cutoffs, ranked):
-    """One row per complex (ensemble and site) and threshold, highest CORE first.
+    """One row per complex and threshold, highest CORE first. A complex is an ensemble, or
+    one ligand site of it, named <ensemble>_site_<n>, when the ligand has several copies.
 
     `above_<cutoff>` is True when CORE >= cutoff. Top-pose columns appear when confidences
     were given, and reference columns when references were evaluated.
@@ -47,7 +48,7 @@ def core_table(groups, scores, validity, labels, cutoffs, ranked):
     rows = []
     for score in scores:
         group, core, threshold = by_name[score["ensemble"]], score["core_score"], score["threshold_angstrom"]
-        row = dict(ensemble=score["ensemble"], site=score["site"], threshold_angstrom=threshold, core_score=core)
+        row = dict(ensemble=score["name"], threshold_angstrom=threshold, core_score=core)
         for cutoff in cutoffs:
             row[f"above_{cutoff:g}"] = None if core is None else core >= cutoff
         row["pose_count"] = score["pose_count"]
@@ -69,10 +70,9 @@ def core_table(groups, scores, validity, labels, cutoffs, ranked):
     return rows
 
 
-
 def pose_table(groups, pb_records, labels, ranked):
     """One row per pose: its confidence, whether PoseBusters passed it and, with references,
-    its RMSD to the reference.
+    its RMSD and lDDT-PLI to the reference and whether it is correct.
 
     Columns that do not apply are left out, and a blank is unknown. The reference columns
     are whichever `label_reference_results()` produced, so there is one per threshold.

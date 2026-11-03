@@ -3,32 +3,30 @@
 import os
 from importlib.metadata import version
 from pathlib import Path
-from core_score import __version__
-from core_score.inputs import load_inputs
-from core_score.results import write_json
-from core_score.stages.comparison import compare_groups
-from core_score.stages.evaluation import evaluate_groups
-from core_score.stages.posebusters import run_posebusters
-from core_score.stages.preparation import prepare_groups
-from core_score.stages.report import write_report
-from core_score.stages.scoring import score_groups
-from core_score.stages.site_assignment import prepare_site_groups
+from core_score.inputs.inputs import load_inputs
+from core_score.outputs.files import write_json
+from core_score.analysis.pairs import compare_groups
+from core_score.analysis.reference import evaluate_groups
+from core_score.analysis.posebusters import run_posebusters
+from core_score.inputs.prepare import prepare_groups
+from core_score.outputs.report import write_report
+from core_score.analysis.core import score_groups
+from core_score.inputs.sites import prepare_site_groups
 
 
-def run(inputs, out, *, smiles=None, ligand_chains=None, reference=None, evaluate_reference=False, **options):
+def run(inputs, out, *, smiles=None, ligand_chains=None, reference=None, **options):
     """Run CORE Score from Python, exactly as the core-score command does.
 
-    `inputs` is a JSON manifest or a list of structure files. The other settings match
-    the command-line options, for example workers=4, thresholds=(1.0, 2.0) or cutoffs=(0.7,).
+    `inputs` is a CSV file or a list of structure files. The other settings match the
+    command-line options, for example workers=4, thresholds=(1.0, 2.0) or cutoffs=(0.7,).
     Results are saved under `out`, and the completion counts are returned.
 
         import core_score
-        core_score.run("inputs.json", "results/", workers=8)
+        core_score.run("inputs.csv", "results/", workers=8)
     """
     inputs = [inputs] if isinstance(inputs, (str, os.PathLike)) else inputs
-    groups = load_inputs(inputs, smiles=smiles, ligand_chains=ligand_chains,
-                         reference=reference, evaluate_reference=evaluate_reference)
-    return execute(groups, out, evaluate_reference=evaluate_reference, **options)
+    groups = load_inputs(inputs, smiles=smiles, ligand_chains=ligand_chains, reference=reference)
+    return execute(groups, out, **options)
 
 
 def execute(
@@ -39,7 +37,6 @@ def execute(
     timeout=None,
     radius_fallback=True,
     skip_posebusters=False,
-    evaluate_reference=False,
     thresholds=(2.0,),
     cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9),
     plot=False,
@@ -47,7 +44,9 @@ def execute(
     """Run the full analysis on loaded ensembles and return completion counts.
 
     The files a user reads go in `output`. Everything behind them goes in `output/details`.
+    Poses are compared with a reference wherever their ensemble has one.
     """
+    evaluate_reference = any("reference" in group for group in groups)
     output = Path(output).resolve()
     thresholds, cutoffs = tuple(map(float, thresholds)), tuple(map(float, cutoffs))
     if output.exists() and any(output.iterdir()):
@@ -55,7 +54,7 @@ def execute(
     details = output / "details"
     details.mkdir(parents=True, exist_ok=True)
     write_json(details / "run.json", dict(
-        package_version=__version__, posebusters_version=version("posebusters"), timeout=timeout,
+        package_version=version("core-score"), posebusters_version=version("posebusters"), timeout=timeout,
         radius_fallback=radius_fallback, workers=workers, skip_posebusters=skip_posebusters,
         thresholds=thresholds, core_cutoffs=cutoffs, evaluate_reference=evaluate_reference, plot=plot,
     ))
@@ -77,7 +76,7 @@ def execute(
                                  radius_fallback=radius_fallback)
     rows_by_complex = write_report(prepared, scores, pb_records, labels, output, cutoffs)
     if plot:
-        from core_score.stages.plotting import plot_core_scores
+        from core_score.outputs.plot import plot_core_scores
         plot_core_scores(rows_by_complex, output, cutoffs)
 
     summary = summarize_run(scores, rows, sites, labels)

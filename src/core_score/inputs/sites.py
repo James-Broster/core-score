@@ -3,13 +3,16 @@
 import numpy as np
 from scipy.cluster.vq import kmeans2
 from scipy.optimize import linear_sum_assignment
-from core_score import ost
-from core_score.results import diagnostic, pose_directory, write_json
-from core_score.structure.cif import filter_records, read_document
+from core_score.analysis import ost
+from core_score.outputs.files import diagnostic, pose_directory, write_json
+from core_score.inputs.structures import filter_records, read_document
 
 
 def prepare_site_groups(groups, output, *, timeout=None):
-    """One ensemble per ligand site. Ensembles with one copy pass through as site 1."""
+    """One ensemble per ligand site. Ensembles with one copy pass through as site 1.
+
+    Each site ensemble is named for the output: the ensemble's own name when it has one
+    ligand copy, and <ensemble>_site_<n> for each site when it has several."""
     split, reports = [], []
     for group in groups:
         try:
@@ -22,7 +25,7 @@ def prepare_site_groups(groups, output, *, timeout=None):
                 raise ValueError(f"Poses have different numbers of ligand copies: {sorted(counts)}")
             copies = counts.pop()
             if copies == 1:
-                split.append(dict(group, site="1"))
+                split.append(dict(group, site="1", name=group["ensemble"]))
                 continue
             sites, report = split_sites(group, copies, output, timeout)
             split += sites
@@ -30,7 +33,7 @@ def prepare_site_groups(groups, output, *, timeout=None):
         except Exception as exc:
             report = diagnostic("site_assignment", exc, ensemble=group["ensemble"])
             reports.append(report)
-            split.append(dict(group, site="unresolved", error=report))
+            split.append(dict(group, site="unresolved", name=group["ensemble"], error=report))
     write_json(output / "sites.json", reports)
     return split
 
@@ -51,7 +54,7 @@ def split_sites(group, copies, output, timeout=None):
         for pose in poses:
             copy = next(c for c in pose["prepared"]["copy_records"] if sites[pose["pose_id"]][c["copy_id"]] == site)
             site_poses.append(site_pose(pose, copy, pose_directory(output, pose) / f"site{site + 1}.cif"))
-        split.append(dict(group, poses=site_poses, site=str(site + 1)))
+        split.append(dict(group, poses=site_poses, site=str(site + 1), name=f"{group['ensemble']}_site_{site + 1}"))
     report = dict(ensemble=group["ensemble"], anchor_pose=poses[0]["pose_id"], transforms=transforms,
                   centres=centres, assignments=sites, costs=costs)
     return split, report

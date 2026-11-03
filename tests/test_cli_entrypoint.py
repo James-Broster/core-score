@@ -13,8 +13,8 @@ def test_direct_structures(values):
     assert not args.skip_posebusters and args.workers == 1
 
 
-@pytest.mark.parametrize("name", ["poses.json", "poses.JSON"])
-def test_json_input(name):
+@pytest.mark.parametrize("name", ["poses.csv", "poses.CSV"])
+def test_csv_input(name):
     args = parser().parse_args([name, "--out", "results", "--skip-posebusters"])
     assert args.inputs == [Path(name)]
     assert args.skip_posebusters
@@ -25,7 +25,7 @@ def test_help(words, capsys):
     with pytest.raises(SystemExit) as exc:
         main(words)
     assert exc.value.code == 0
-    assert "inputs.json" in capsys.readouterr().out
+    assert "inputs.csv" in capsys.readouterr().out
 
 
 def test_python_run_loads_inputs_then_executes(tmp_path):
@@ -34,8 +34,16 @@ def test_python_run_loads_inputs_then_executes(tmp_path):
 
     with patch("core_score.pipeline.load_inputs", return_value=["groups"]) as load, \
             patch("core_score.pipeline.execute", return_value="summary") as execute:
-        assert core_score.run("inputs.json", tmp_path, smiles="CCO", workers=4) == "summary"
-    assert load.call_args.args[0] == ["inputs.json"]
+        assert core_score.run("inputs.csv", tmp_path, smiles="CCO", workers=4) == "summary"
+    assert load.call_args.args[0] == ["inputs.csv"]
     assert load.call_args.kwargs["smiles"] == "CCO"
     assert execute.call_args.args == (["groups"], tmp_path)
-    assert execute.call_args.kwargs == dict(evaluate_reference=False, workers=4)
+    assert execute.call_args.kwargs == dict(workers=4)
+
+
+def test_public_python_interface_is_run_and_score():
+    import core_score
+
+    assert sorted(core_score.__all__) == ["run", "score"]
+    assert core_score.score([[1.0] * 4] * 4) == 0.5
+    assert not hasattr(core_score, "core_score")

@@ -4,8 +4,8 @@ import itertools
 import math
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from core_score import ost
-from core_score.results import diagnostic, write_csv, write_jsonl
+from core_score.analysis import ost
+from core_score.outputs.files import diagnostic, write_csv, write_jsonl
 
 
 def compare_groups(groups, output, *, workers=1, timeout=None, radius_fallback=True):
@@ -36,19 +36,19 @@ def run_pair_tasks(tasks, workers=1, **options):
         return list(pool.map(job, tasks))
 
 
-def pair_job(task, *, timeout=None, radius_fallback=True):
+def pair_job(task, *, timeout=None, radius_fallback=True, lddt_pli=False):
     group, pose_i, pose_j = task
     ids = dict(ensemble=group["ensemble"], site=group["site"],
                pose_i=pose_i["pose_id"], pose_j=pose_j["pose_id"])
     try:
-        row, detail = compare_pair(pose_i, pose_j, timeout=timeout, radius_fallback=radius_fallback)
+        row, detail = compare_pair(pose_i, pose_j, timeout=timeout, radius_fallback=radius_fallback, lddt_pli=lddt_pli)
     except Exception as exc:
         detail = diagnostic("comparison", exc, inputs=[pose_i["path"], pose_j["path"]])
         row = dict(n_assigned=0, error=detail["error"])
     return dict(ids, **row), dict(ids, **detail)
 
 
-def compare_pair(pose_i, pose_j, *, timeout=None, radius_fallback=True):
+def compare_pair(pose_i, pose_j, *, timeout=None, radius_fallback=True, lddt_pli=False):
     """OST scores for one pair, retried at 6 and then 8 A after a binding-site failure at 4 A.
 
     The RMSD metrics come from the radius that scored. lDDT-PLI always stays from 4 A.
@@ -58,7 +58,7 @@ def compare_pair(pose_i, pose_j, *, timeout=None, radius_fallback=True):
     retry = radius_fallback and model["copies"] == reference["copies"] == 1
     results, attempts = [], []
     for radius in (4.0, 6.0, 8.0) if retry else (4.0,):
-        result = ost.compare_ligands(model, reference, timeout, radius)
+        result = ost.compare_ligands(model, reference, timeout, radius, lddt_pli)
         failed = result["status"] == "FAILURE"
         assigned = [] if failed else result.get("rmsd", {}).get("assigned_scores", [])
         score = assigned[0].get("score") if len(assigned) == 1 else None

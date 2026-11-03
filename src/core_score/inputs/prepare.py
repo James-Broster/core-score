@@ -1,15 +1,16 @@
-"""Prepare every pose: select its ligand copies, write SDFs for OST and PoseBusters and a
-receptor for PoseBusters, then check OST can read the ligand. Predicted coordinates are
-never changed."""
+"""Prepare every pose: select its ligand copies, give identical chains one entity, write
+SDFs for OST and PoseBusters and a receptor for PoseBusters, then check OST can read the
+ligand. Predicted coordinates are never changed."""
 
 from pathlib import Path
 import numpy as np
 from rdkit import Chem
-from core_score import ost
-from core_score.results import diagnostic, pose_directory, write_json
-from core_score.structure.chemistry import choose_ligands, heavy_atoms
-from core_score.structure.cif import filter_records, ligand_residues, read_document, write_receptor
-from core_score.structure.sdf import make_ligand, read_original, write_molecule
+from core_score.analysis import ost
+from core_score.outputs.files import diagnostic, pose_directory, write_json
+from core_score.inputs.structures import (
+    choose_ligands, filter_records, heavy_atoms, ligand_residues, make_ligand, merge_identical_entities, read_document,
+    read_original, write_molecule, write_receptor,
+)
 
 
 def prepare_groups(groups, output, *, timeout=None):
@@ -32,8 +33,9 @@ def prepare(pose, destination, cache=None, timeout=None):
     """The pose with its prepared record, or with the error that stopped preparation."""
     try:
         prepared = prepare_pose(pose, destination, cache)
-        if not prepared["ligand_sdfs"] and not ost.detects_ligands(prepared, timeout):
-            # OST cannot read this ligand from the structure, so it gets the connectivity SDFs.
+        if not prepared["ligand_sdfs"] and not ost.reads_ligand(prepared, timeout):
+            # OST cannot read this ligand from the structure, or connects it differently,
+            # so it gets the package's SDFs, with bonds from the coordinates, instead.
             prepared.update(ligand_sdfs=[copy["ost_sdf"] for copy in prepared["copy_records"]],
                             route="explicit_connectivity_sdf")
         return dict(pose, prepared=prepared)
@@ -46,8 +48,9 @@ def prepare_pose(pose, destination, cache=None):
     source = Path(pose["path"])
     destination.parent.mkdir(parents=True, exist_ok=True)
     doc = read_document(source)
+    merge_identical_entities(doc)
     if pose.get("ligand_sdfs"):
-        prepared, ligands = from_original_sdfs(pose, doc, source, destination)
+        prepared, ligands = from_original_sdfs(pose, doc, destination)
     else:
         prepared, ligands = from_structure(pose, doc, destination, cache)
     receptor = destination.with_suffix(".receptor.pdb")
@@ -55,16 +58,14 @@ def prepare_pose(pose, destination, cache=None):
     return dict(prepared, receptor=str(receptor))
 
 
-def from_original_sdfs(pose, doc, source, destination):
+def from_original_sdfs(pose, doc, destination):
     """Supplied SDFs, already in the receptor's frame, are the ligand copies."""
-    path = str(source)
-    if source.suffix.lower() in (".pdb", ".ent"):
-        doc.write_file(str(destination))
-        path = str(destination)
+    doc.write_file(str(destination))
+    path = str(destination)
     residues = ligand_residues(doc)
     copies, matched = [], set()
     for i, sdf in enumerate(pose["ligand_sdfs"]):
-        mol = Chem.RemoveAllHs(read_original(sdf, pose.get("smiles")))
+        mol = Chem.RemoveAllHs(read_original(sdf, pose["smiles"]))
         # Any structure residue holding the same ligand is left out of the receptor.
         matched |= {key for key, rows in residues.items() if same_atoms(rows, mol)}
         copies.append(dict(copy_id=str(i), ost_sdf=sdf, pb_sdf=sdf, pb_error=None, provenance="original_sdf",
@@ -80,7 +81,7 @@ def from_structure(pose, doc, destination, cache):
     copies = []
     for i, (key, rows) in enumerate(selected.items()):
         heavy = heavy_atoms(rows)
-        ost_mol, pb_mol, provenance, pb_error = make_ligand(doc, rows, pose.get("smiles"), cache, pose["ensemble"])
+        ost_mol, pb_mol, provenance, pb_error = make_ligand(doc, rows, pose["smiles"], cache, pose["ensemble"])
         ost_sdf = destination.with_name(f"{destination.stem}.copy{i}.ost.sdf")
         write_molecule(ost_mol, ost_sdf)
         pb_sdf = None

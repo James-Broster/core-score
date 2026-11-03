@@ -30,16 +30,18 @@ def execute(arguments, timeout=None):
         return json.loads(output.read_text()), execution
 
 
-def compare_ligands(model, reference, timeout=None, radius=4.0):
-    """`ost compare-ligand-structures` result for one model/reference pair of prepared structures."""
+def compare_ligands(model, reference, timeout=None, radius=4.0, lddt_pli=False):
+    """`ost compare-ligand-structures` result for one model/reference pair of prepared structures.
+    lDDT-PLI is only computed when asked for, since CORE uses RMSD alone."""
     arguments = ["compare-ligand-structures", "-m", model["path"]]
     if model["ligand_sdfs"]:
         arguments += ["-ml", *model["ligand_sdfs"]]
     arguments += ["-r", reference["path"]]
     if reference["ligand_sdfs"]:
         arguments += ["-rl", *reference["ligand_sdfs"]]
-    arguments += ["--fault-tolerant", "--rmsd", "--full-bs-search", "--full-results",
-                  "--lddt-pli", "--lddt-pli-add-mdl-contacts"]
+    arguments += ["--fault-tolerant", "--rmsd", "--full-bs-search", "--full-results"]
+    if lddt_pli:
+        arguments += ["--lddt-pli", "--lddt-pli-add-mdl-contacts"]
     if radius != 4.0:
         arguments += ["--radius", radius]
     result, execution = execute(arguments, timeout)
@@ -50,12 +52,17 @@ def compare_ligands(model, reference, timeout=None, radius=4.0):
     return result
 
 
-def detects_ligands(prepared, timeout=None):
-    """Whether OST finds the ligand in a prepared structure by itself (a self-comparison)."""
-    result = compare_ligands(prepared, prepared, timeout)
-    if result["status"] == "FAILURE":
-        raise OSTError(f"OST could not read the prepared structure: {result['exception']}", result)
-    return bool(result.get("model_ligands"))
+def reads_ligand(prepared, timeout=None):
+    """Whether OST reads each ligand copy from the structure itself, connected the same way
+    as in the package's own SDFs (bonds from the coordinates). A ligand OST cannot find,
+    cannot read, or connects differently returns False."""
+    sdfs = [copy["ost_sdf"] for copy in prepared["copy_records"]]
+    try:
+        result = compare_ligands(prepared, dict(prepared, ligand_sdfs=sdfs), timeout)
+    except OSTError:
+        return False
+    assigned = [] if result["status"] == "FAILURE" else result.get("rmsd", {}).get("assigned_scores", [])
+    return len(assigned) == len(sdfs)
 
 
 def superpose(model_path, reference_path, timeout=None):

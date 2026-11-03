@@ -2,8 +2,8 @@ from copy import deepcopy
 from unittest.mock import patch
 import numpy as np
 import pytest
-from core_score.structure.cif import read_document, ligand_residues
-from core_score.stages.site_assignment import prepare_site_groups
+from core_score.inputs.structures import read_document, ligand_residues
+from core_score.inputs.sites import prepare_site_groups
 
 
 @pytest.mark.parametrize('native', [False, True])
@@ -33,15 +33,15 @@ ATOM 1 C CA A 0 0 0
                 record['residue'] = list(keys[i])
             records.append(record)
         sdfs = [] if native else [r['ost_sdf'] for r in records]
-        poses.append(dict(ensemble='target', pose_id=f'p{index}', seed=0, sample=index,
+        poses.append(dict(ensemble='target', pose_id=f'p{index}',
                           prepared=dict(path=str(source), copies=2, copy_records=records, ligand_sdfs=sdfs)))
     groups = [dict(ensemble='target', poses=poses)]
     original_groups = deepcopy(groups)
     fit = dict(transform=np.eye(4), rmsd=0, chain_mapping={})
-    with patch('core_score.ost.superpose', return_value=fit) as align:
+    with patch('core_score.analysis.ost.superpose', return_value=fit) as align:
         sites = prepare_site_groups(groups, tmp_path)
     assert align.call_count == 1
-    assert len(sites) == 2
+    assert [site['name'] for site in sites] == ['target_site_1', 'target_site_2']
     for site in sites:
         prepared = [p['prepared'] for p in site['poses']]
         assert all(p['copies'] == 1 for p in prepared)
@@ -61,7 +61,7 @@ ATOM 1 C CA A 0 0 0
 
 def test_single_copy_does_not_align(tmp_path):
     groups = [dict(ensemble='target', poses=[dict(prepared=dict(copies=1))])]
-    with patch('core_score.ost.superpose') as align:
+    with patch('core_score.analysis.ost.superpose') as align:
         result = prepare_site_groups(groups, tmp_path)
     align.assert_not_called()
     assert result[0]['site'] == '1'

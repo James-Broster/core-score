@@ -1,14 +1,15 @@
+import gemmi
 import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.structure.sdf import (
+from core_score.inputs.structures import (
     matched_template,
     generic_graph,
     write_molecule,
     read_original,
 )
-from core_score.structure.chemistry import identity
+from core_score.inputs.structures import canonical_smiles
 
 
 def conformer(smiles):
@@ -23,7 +24,7 @@ def test_transfer_preserves_chemistry_coordinates_and_atom_order():
     observed = Chem.RenumberAtoms(generic_graph(original), [3, 1, 2, 0])
     result = matched_template(template, observed)
     Chem.SanitizeMol(result)
-    assert identity(result) == identity(template)
+    assert canonical_smiles(result) == canonical_smiles(template)
     np.testing.assert_array_equal(
         result.GetConformer().GetPositions(), observed.GetConformer().GetPositions()
     )
@@ -42,14 +43,14 @@ def test_original_sdf_identity_and_coordinate_precision(tmp_path):
     mol = conformer("CCO")
     path = tmp_path / "ligand.sdf"
     write_molecule(mol, path)
-    assert identity(read_original(path, "CCO")) == "CCO"
+    assert canonical_smiles(read_original(path, "CCO")) == "CCO"
     with pytest.raises(ValueError, match="identity"):
         read_original(path, "CCN")
 
 
 def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
     import gemmi
-    from core_score.structure import sdf
+    from core_score.inputs import structures as sdf
 
     # An otherwise valid molecule must be discarded if a later validation fails.
     observed = conformer("CCO")
@@ -71,7 +72,7 @@ def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
 
 def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf():
     from unittest.mock import Mock
-    from core_score.stages.posebusters import check_pose
+    from core_score.analysis.posebusters import check_pose
 
     buster = Mock()
     result = check_pose(buster, [], dict(
@@ -85,7 +86,7 @@ def test_pb_does_not_run_when_preparation_error_has_a_stale_sdf():
 
 def test_peer_graph_recovery_keeps_recipient_coordinates_and_cache_scope(monkeypatch):
     import gemmi
-    from core_score.structure import sdf
+    from core_score.inputs import structures as sdf
 
     donor = conformer("CCO")
     positions = donor.GetConformer().GetPositions().copy()
@@ -110,3 +111,68 @@ def test_peer_graph_recovery_keeps_recipient_coordinates_and_cache_scope(monkeyp
     # A different ensemble or different declared SMILES cannot borrow this entry.
     assert sdf.make_ligand(doc, rows, "CCO", cache, "other")[3]
     assert sdf.make_ligand(doc, rows, "COC", cache, "ensemble")[3]
+
+
+def test_identical_chains_get_one_entity_and_atoms_are_untouched():
+    from core_score.inputs.structures import atom_rows, merge_identical_entities
+
+    text = """data_pose
+loop_
+_entity.id
+_entity.type
+1 polymer
+2 polymer
+3 polymer
+loop_
+_entity_poly_seq.entity_id
+_entity_poly_seq.num
+_entity_poly_seq.mon_id
+1 1 ALA
+1 2 GLY
+2 1 ALA
+2 2 GLY
+3 1 ALA
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 2
+C 3
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_entity_id
+_atom_site.auth_asym_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM 1 C 1 A 1.234 0 0
+ATOM 2 C 2 B 2.345 0 0
+ATOM 3 C 3 C 3.456 0 0
+"""
+    doc = gemmi.cif.read_string(text)
+    before = atom_rows(doc)
+    merge_identical_entities(doc)
+    block = doc.sole_block()
+    assert list(block.find_values("_entity.id")) == ["1", "3"]
+    assert list(block.find_values("_struct_asym.entity_id")) == ["1", "1", "3"]
+    assert [r["label_entity_id"] for r in atom_rows(doc)] == ["1", "1", "3"]
+    assert [{k: v for k, v in r.items() if k != "label_entity_id"} for r in atom_rows(doc)] == \
+        [{k: v for k, v in r.items() if k != "label_entity_id"} for r in before]
+
+
+def test_receptor_shortens_chain_names_too_long_for_pdb(tmp_path):
+    from pathlib import Path
+    from core_score.inputs.structures import write_receptor
+
+    doc = gemmi.cif.read(str(Path(__file__).parent / "fixtures" / "7wl4_pose0.cif"))
+    for tag in ("_atom_site.auth_asym_id", "_atom_site.label_asym_id"):
+        column = doc.sole_block().find_values(tag)
+        for i, chain in enumerate(column):
+            column[i] = f"1.{chain}"  # PLINDER's chain names
+    source = tmp_path / "system.cif"
+    doc.write_file(str(source))
+    write_receptor(source, set(), tmp_path / "receptor.pdb")
+    structure = gemmi.read_structure(str(tmp_path / "receptor.pdb"))
+    assert len(structure[0]) == len(gemmi.read_structure(str(source))[0])

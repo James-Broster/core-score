@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 import pytest
-from core_score.stages.comparison import compare_pair
+from core_score.analysis.pairs import compare_pair
 
 
 def scored(rmsd, lddt_pli=0.8):
@@ -23,12 +23,13 @@ BINDING_SITE = unassigned(["binding_site", "No residues in binding site"])
 def compare(answers, radius_fallback=True, copies=1):
     calls = []
 
-    def ost_call(model, reference, timeout, radius):
+    def ost_call(model, reference, timeout, radius, lddt_pli):
+        assert lddt_pli is False  # pose-versus-pose pairs never ask OST for lDDT-PLI
         calls.append(radius)
         return answers[radius]
 
     pose = lambda name: dict(pose_id=name, path=f"{name}.cif", prepared=dict(path=f"{name}.cif", copies=copies))
-    with patch("core_score.ost.compare_ligands", side_effect=ost_call):
+    with patch("core_score.analysis.ost.compare_ligands", side_effect=ost_call):
         row, detail = compare_pair(pose("a"), pose("b"), radius_fallback=radius_fallback)
     return row, detail, calls
 

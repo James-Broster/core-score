@@ -11,9 +11,9 @@ from unittest.mock import patch
 import gemmi
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from core_score.stages.comparison import pair_job, summarize
-from core_score.stages.preparation import prepare_pose
-from core_score.structure.cif import filter_records, ligand_residues, read_document
+from core_score.analysis.pairs import pair_job, summarize
+from core_score.inputs.prepare import prepare_pose
+from core_score.inputs.structures import atom_rows, filter_records, ligand_residues, read_document
 
 
 class SummaryTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class SummaryTests(unittest.TestCase):
         prepared = dict(path="model.cif", ligand_sdfs=[], copies=1)
         pose = lambda name: dict(pose_id=name, path=name, prepared=prepared)
         with patch(
-            "core_score.ost.subprocess.run",
+            "core_score.analysis.ost.subprocess.run",
             side_effect=subprocess.TimeoutExpired("ost", 1),
         ):
             row, detail = pair_job((dict(ensemble="e", site="1"), pose("a"), pose("b")))
@@ -143,9 +143,10 @@ HETATM 4 O O1 X 10.0 11.0 12.0 1.00
             contents = sdf.read_bytes()
             result = prepare_pose(
                 dict(path=str(source.resolve()), ligand_sdfs=[str(sdf.resolve())], smiles="CCO"),
-                Path(tmp) / "unused.cif",
+                Path(tmp) / "pose.cif",
             )
-            self.assertEqual(result["path"], str(source.resolve()))
+            self.assertEqual(result["path"], str(Path(tmp) / "pose.cif"))
+            self.assertEqual(atom_rows(read_document(result["path"])), atom_rows(read_document(source)))
             self.assertEqual(result["ligand_sdfs"], [str(sdf.resolve())])
             self.assertEqual(sdf.read_bytes(), contents)
 

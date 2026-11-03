@@ -2,7 +2,7 @@
 choosing the top-ranked valid pose. CORE uses every pose whatever its result. Unknown never
 counts as a pass."""
 
-from core_score.results import clean, diagnostic, write_json
+from core_score.outputs.files import clean, diagnostic, write_json
 
 
 def run_posebusters(groups, output):

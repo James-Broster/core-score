@@ -1,8 +1,8 @@
 """CORE Score: agreement within an ensemble of predicted protein-ligand poses."""
 
-__version__ = "0.3.0"
+from core_score.pipeline import run
+from core_score.analysis.core import core_score as score
 
-from core_score.pipeline import run  # noqa: E402  (after __version__, which pipeline imports)
-from core_score.stages.scoring import core_score  # noqa: E402
+__version__ = "0.4.0"
 
-__all__ = ["run", "core_score"]
+__all__ = ["run", "score"]

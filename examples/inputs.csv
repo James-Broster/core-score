@@ -1,0 +1,6 @@
+ensemble,smiles,poses,confidence,reference
+target1,CC(=O)Nc1ccc(O)cc1,predictions/target1/seed-1_sample-0/target1_seed-1_sample-0_model.cif,0.91,references/target1.cif
+target1,CC(=O)Nc1ccc(O)cc1,predictions/target1/seed-1_sample-1/target1_seed-1_sample-1_model.cif,0.88,references/target1.cif
+target1,CC(=O)Nc1ccc(O)cc1,predictions/target1/seed-1_sample-2/target1_seed-1_sample-2_model.cif,0.93,references/target1.cif
+target1,CC(=O)Nc1ccc(O)cc1,predictions/target1/seed-1_sample-3/target1_seed-1_sample-3_model.cif,0.85,references/target1.cif
+target1,CC(=O)Nc1ccc(O)cc1,predictions/target1/seed-1_sample-4/target1_seed-1_sample-4_model.cif,0.90,references/target1.cif

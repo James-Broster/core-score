@@ -2,7 +2,9 @@
 
 import itertools
 import numpy as np
-from core_score.results import diagnostic
+from core_score.outputs.files import diagnostic
+
+NEIGHBOURS = 3  # each pose is scored against its three closest other poses
 
 
 def score_groups(groups, rows, thresholds=(2.0,)):
@@ -19,7 +21,7 @@ def score_groups(groups, rows, thresholds=(2.0,)):
             except ValueError as exc:
                 error = diagnostic("scoring", exc)
         scores += [
-            dict(ensemble=group["ensemble"], site=group["site"], pose_count=len(ids), threshold_angstrom=threshold,
+            dict(ensemble=group["ensemble"], site=group["site"], name=group["name"], pose_count=len(ids), threshold_angstrom=threshold,
                  core_score=value, error=error["error"] if error else None)
             for threshold, value in values.items()
         ]
@@ -43,16 +45,17 @@ def build_matrix(pose_ids, rows):
     return matrix
 
 
-def core_score(matrix, threshold=2.0):
+def core_score(matrix, threshold=2.0, neighbours=NEIGHBOURS):
     """CORE Score of an ensemble from its complete pairwise ligand-RMSD matrix.
 
-    Each pose's RMSD to its closest other pose, capped at `threshold` and divided by it,
-    is that pose's penalty: zero when another pose reproduces it exactly, one when no
-    other pose lies within the threshold. CORE is one minus the mean penalty.
+    Each pose's RMSDs to its `neighbours` closest other poses are capped at `threshold`
+    and divided by it, and their mean is that pose's penalty: zero when those poses
+    reproduce it exactly, one when none of them lies within the threshold. CORE is one
+    minus the mean penalty over all poses, so it needs at least `neighbours` + 1 poses.
     """
     distances = np.array(matrix, dtype=float)
-    if len(distances) < 2:
-        raise ValueError("CORE Score needs at least two poses")
+    if len(distances) <= neighbours:
+        raise ValueError(f"CORE needs at least {neighbours + 1} poses; this ensemble has {len(distances)}")
     np.fill_diagonal(distances, np.inf)
-    nearest = distances.min(axis=1)
-    return float(1.0 - np.mean(np.minimum(nearest, threshold) / threshold))
+    closest = np.sort(distances, axis=1)[:, :neighbours]
+    return float(1.0 - np.mean(np.minimum(closest, threshold) / threshold))
