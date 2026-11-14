@@ -70,7 +70,7 @@ def test_matrix_missing_duplicate_and_failed_pairs():
 
 def test_cli_agreed_defaults():
     args = parser().parse_args(["one.cif", "two.cif", "--out", "results"])
-    assert args.workers == 1 and args.timeout is None
+    assert args.workers == 1 and args.timeout == 120
     assert not args.skip_posebusters and not hasattr(args, "filter_pb_invalid")
     assert not args.no_radius_fallback and not hasattr(args, "fallback_radii")
     assert args.rmsd_thresholds == [2]
@@ -92,6 +92,34 @@ def test_posebusters_records_every_pose(tmp_path):
     assert pb.call_count == 2
     assert [r["pb_valid"] for r in records] == [True, False]
     assert json.loads((tmp_path / "posebusters.json").read_text()) == answers
+
+
+def test_posebusters_energy_threads_are_bounded_without_mutating_shared_config(tmp_path):
+    original = {"modules": [{"function": "energy_ratio", "parameters": {"num_threads": 0, "threshold": 7}}]}
+    buster = Mock(config=original)
+    with patch("posebusters.PoseBusters", return_value=buster):
+        run_posebusters([], tmp_path)
+    assert original["modules"][0]["parameters"] == {"num_threads": 0, "threshold": 7}
+    assert buster.config["modules"][0]["parameters"] == {"num_threads": 1, "threshold": 7}
+
+
+def test_missing_energy_is_reported_as_unknown_in_csv_and_never_counted_valid(tmp_path):
+    from core_score.analysis.posebusters import check_pose
+    from core_score.outputs.report import write_report
+
+    sites, scores, pb, references = report_inputs()
+    pose = dict(ensemble="g", pose_id="a", prepared=dict(receptor="r.pdb", copy_records=["c0"]))
+    copy = dict(copy_id="0", pb_valid=None, checks=dict(bond_lengths=True, internal_energy=None),
+                tests=dict(energy_ratio=None, ensemble_avg_energy=None))
+    with patch("core_score.analysis.posebusters.check_copy", return_value=copy):
+        unknown = check_pose(None, ["bond_lengths", "internal_energy"], pose)
+    pb[0] = unknown
+    write_report(sites, scores, pb, references, tmp_path)
+    row = read(tmp_path / "predictions.csv")[0]
+    assert row["pb_valid"] == ""
+    assert row["core_score"] == "0.9"
+    assert "internal_energy" in row["note"]
+    assert read(tmp_path / "core_scores.csv")[0]["valid_prediction_count"] == "0"
 
 
 def test_each_check_combines_the_copies_and_unknown_never_passes():

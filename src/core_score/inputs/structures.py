@@ -330,14 +330,13 @@ def make_ligand(doc, rows, smiles, cache=None, ensemble=None):
 def write_molecule(mol, path):
     Chem.MolToMolFile(mol, str(path))
     reread = Chem.MolFromMolFile(str(path), sanitize=False, removeHs=False)
-    if reread is None or reread.GetNumAtoms() != mol.GetNumAtoms():
+    if reread is None or [a.GetSymbol() for a in reread.GetAtoms()] != [a.GetSymbol() for a in mol.GetAtoms()]:
         raise ValueError("SDF serialization failed")
-    if not np.allclose(
-        mol.GetConformer().GetPositions(),
-        reread.GetConformer().GetPositions(),
-        atol=0.00011,
-        rtol=0,
-    ):
+    original = mol.GetConformer().GetPositions()
+    serialized = reread.GetConformer().GetPositions()
+    difference = float(np.max(np.abs(original - serialized)))
+    if not np.isfinite(serialized).all() or not np.isfinite(difference) or difference > 5.00001e-5:
         raise ValueError(
             "SDF serialization changed coordinates beyond format precision"
         )
+    return dict(atom_count=mol.GetNumAtoms(), max_coordinate_difference_angstrom=difference)

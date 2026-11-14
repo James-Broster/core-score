@@ -14,6 +14,8 @@ from core_score.outputs.report import write_report
 from core_score.analysis.core import score_groups
 from core_score.inputs.sites import prepare_site_groups
 from core_score.analysis.ost import require_ost
+from core_score.analysis import transport
+from core_score import __version__
 
 
 def run(inputs, out, *, ligand=None, ligand_chains=None, reference=None, **options):
@@ -36,7 +38,7 @@ def execute(
     output,
     *,
     workers=1,
-    timeout=None,
+    timeout=120,
     radius_fallback=True,
     skip_posebusters=False,
     thresholds=(2.0,),
@@ -57,33 +59,44 @@ def execute(
     details = output / "details"
     details.mkdir(parents=True, exist_ok=True)
     write_json(details / "run.json", dict(
-        package_version=version("core-score"), posebusters_version=version("posebusters"), timeout=timeout,
+        package_version=__version__, posebusters_version=version("posebusters"), timeout=timeout,
         radius_fallback=radius_fallback, workers=workers, skip_posebusters=skip_posebusters,
         thresholds=thresholds, evaluate_reference=evaluate_reference, plot=plot,
+        ligand_connectivity="smiles_matched_explicit_connectivity_v1",
+        ost_mode=transport.mode(), ost_max_timeout_retries=transport.MAX_TIMEOUT_RETRIES,
+        structures_cached=False, posebusters_energy_threads=1,
     ))
 
-    print("Preparing structures and ligand chemistry", flush=True)
-    prepared = prepare_groups(groups, details, timeout=timeout)
-    pb_records = None
-    if not skip_posebusters:
-        print("Running PoseBusters dock checks", flush=True)
-        pb_records = run_posebusters(prepared, details)
-    sites = prepare_site_groups(prepared, details, timeout=timeout)
-    print(f"Comparing predictions with {workers} simultaneous OST worker(s)", flush=True)
-    rows = compare_groups(sites, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
-    scores = score_groups(sites, rows, thresholds)
-    references = []
-    if evaluate_reference:
-        print("Comparing predictions with their references", flush=True)
-        references = evaluate_groups(prepared, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
-    scores_by_threshold = write_report(sites, scores, pb_records, references, output)
-    if plot:
-        from core_score.outputs.plot import plot_core_scores
-        plot_core_scores(scores_by_threshold, output)
+    with transport.session(details):
+        print("Preparing structures and ligand chemistry", flush=True)
+        prepared = prepare_groups(groups, details, timeout=timeout)
+        write_json(details / "ligand_preparation.json", [
+            dict(ensemble=pose["ensemble"], pose_id=pose["pose_id"], error=pose.get("error"),
+                 route=pose.get("prepared", {}).get("route"),
+                 copies=[{key: copy.get(key) for key in ("copy_id", "provenance", "pb_error", "coordinate_audit")}
+                         for copy in pose.get("prepared", {}).get("copy_records", [])])
+            for group in prepared for pose in group["poses"]
+        ])
+        pb_records = None
+        if not skip_posebusters:
+            print("Running PoseBusters dock checks", flush=True)
+            pb_records = run_posebusters(prepared, details)
+        sites = prepare_site_groups(prepared, details, timeout=timeout)
+        print(f"Comparing predictions with {workers} simultaneous OST worker(s)", flush=True)
+        rows = compare_groups(sites, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
+        scores = score_groups(sites, rows, thresholds)
+        references = []
+        if evaluate_reference:
+            print("Comparing predictions with their references", flush=True)
+            references = evaluate_groups(prepared, details, workers=workers, timeout=timeout, radius_fallback=radius_fallback)
+        scores_by_threshold = write_report(sites, scores, pb_records, references, output)
+        if plot:
+            from core_score.outputs.plot import plot_core_scores
+            plot_core_scores(scores_by_threshold, output)
 
-    for working in ("prepared", "references"):
-        shutil.rmtree(details / working, ignore_errors=True)
-    return summarize_run(scores, rows, sites, references)
+        for working in ("prepared", "references"):
+            shutil.rmtree(details / working, ignore_errors=True)
+        return summarize_run(scores, rows, sites, references)
 
 
 def summarize_run(scores, rows, groups, references):

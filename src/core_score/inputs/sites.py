@@ -112,5 +112,7 @@ def site_pose(pose, copy, destination):
         filter_records(read_document(prepared["path"]), {tuple(copy["residue"])}, destination)
         prepared["path"] = str(destination)
     if prepared["ligand_sdfs"]:
-        prepared["ligand_sdfs"] = [copy["ost_sdf"]]
+        # Preserve the selected chemistry when splitting multiple copies into sites.
+        index = pose["prepared"]["copy_records"].index(copy)
+        prepared["ligand_sdfs"] = [pose["prepared"]["ligand_sdfs"][index]]
     return dict(pose, prepared=prepared)

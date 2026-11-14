@@ -2,12 +2,12 @@
 library through OST's own discovery or OST_COMPOUNDS_CHEMLIB."""
 
 import json
-import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 import numpy as np
+from core_score.analysis import transport
 
 
 INSTALL = "conda install -c conda-forge -c bioconda openstructure"
@@ -27,17 +27,31 @@ class OSTError(RuntimeError):
 
 def execute(arguments, timeout=None):
     """Run `ost <arguments> -o <file>` and return its JSON output with the execution record."""
-    # One numerical-library thread per process, so --workers alone sets the parallelism.
-    env = dict(os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
-    with tempfile.TemporaryDirectory() as directory:
-        output = Path(directory) / "ost.json"
-        command = ["ost", *map(str, arguments), "-o", str(output)]
-        process = subprocess.run(command, env=env, capture_output=True, text=True, timeout=timeout)
-        execution = dict(command=command, returncode=process.returncode,
-                         stdout=process.stdout, stderr=process.stderr)
-        if not output.exists():
-            raise OSTError(process.stderr.strip() or f"OST exited with code {process.returncode}", execution)
-        return json.loads(output.read_text()), execution
+    retries = []
+    for attempt in range(transport.MAX_TIMEOUT_RETRIES + 1):
+        # Fresh output path on every attempt: never read partial/stale results after timeout.
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ost.json"
+            try:
+                execution = transport.run(arguments, output, timeout)
+            except subprocess.TimeoutExpired as exc:
+                event = dict(event="timeout", arguments=list(map(str, arguments)), timeout=timeout,
+                             attempt=attempt + 1, retry=attempt < transport.MAX_TIMEOUT_RETRIES,
+                             error=str(exc))
+                retries.append(event)
+                transport.audit(event)
+                if attempt == transport.MAX_TIMEOUT_RETRIES:
+                    raise OSTError(f"TimeoutExpired: {exc}", dict(timeout_retries=retries)) from exc
+                continue
+            execution["timeout_retries"] = retries
+            if not output.exists():
+                raise OSTError(execution["stderr"].strip() or
+                               f"OST exited with code {execution['returncode']}", execution)
+            try:
+                result = json.loads(output.read_text())
+            except (ValueError, OSError) as exc:
+                raise OSTError(f"Invalid OST output: {exc}", execution) from exc
+            return result, execution
 
 
 def compare_ligands(model, reference, timeout=None, radius=4.0, lddt_pli=False):

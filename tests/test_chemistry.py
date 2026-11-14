@@ -229,3 +229,47 @@ def test_pdb_input_is_prepared_like_cif(tmp_path):
     assert from_pdb["copies"] == from_cif["copies"] == 1
     assert from_pdb["copy_records"][0]["pb_error"] is None
     assert from_pdb["copy_records"][0]["centre"] == pytest.approx(from_cif["copy_records"][0]["centre"], abs=1e-3)
+
+
+def test_ost_uses_verified_bonds_even_when_coordinate_inference_loses_a_bond(tmp_path):
+    from core_score.inputs.prepare import prepare
+    from core_score.inputs.sites import site_pose
+
+    source = tmp_path / "pose.cif"
+    source.write_text((ETHANOL + BOND_TABLE).replace("2.000 1.350", "20.000 1.350"))
+    original = source.read_bytes()
+    result = prepare(dict(path=str(source), smiles="CCO", ensemble="e", pose_id="p"), tmp_path / "out.cif")
+    assert not result.get("error")
+    prepared = result["prepared"]
+    copy = prepared["copy_records"][0]
+    assert prepared["ligand_sdfs"] == [copy["pb_sdf"]]
+    assert Chem.MolFromMolFile(copy["pb_sdf"]).GetNumBonds() == 2
+    assert Chem.MolFromMolFile(copy["ost_sdf"], sanitize=False).GetNumBonds() == 1
+    assert copy["coordinate_audit"]["max_coordinate_difference_angstrom"] <= 5.00001e-5
+    split = site_pose(result, copy, tmp_path / "site.cif")
+    assert split["prepared"]["ligand_sdfs"] == [copy["pb_sdf"]]
+    assert source.read_bytes() == original
+
+
+def test_unverified_graph_is_not_silently_scored_with_coordinate_bonds(tmp_path):
+    from core_score.inputs.prepare import prepare
+
+    source = tmp_path / "pose.cif"
+    source.write_text(ETHANOL.replace("2.000 1.350", "20.000 1.350"))
+    result = prepare(dict(path=str(source), smiles="CCO", ensemble="e", pose_id="p"), tmp_path / "out.cif")
+    assert "Cannot verify ligand connectivity" in result["error"]["error"]
+
+
+def test_verified_graph_from_later_pose_recovers_earlier_pose(tmp_path):
+    from core_score.inputs.prepare import prepare_groups
+
+    first, second = tmp_path / "a.cif", tmp_path / "b.cif"
+    first.write_text(ETHANOL.replace("2.000 1.350", "20.000 1.350"))
+    second.write_text(ETHANOL + BOND_TABLE)
+    poses = [dict(path=str(p), smiles="CCO", ensemble="e", pose_id=p.name) for p in (first, second)]
+    [group] = prepare_groups([dict(ensemble="e", poses=poses)], tmp_path / "out")
+    assert not any(p.get("error") for p in group["poses"])
+    recovered = group["poses"][0]["prepared"]["copy_records"][0]
+    assert recovered["provenance"] == "same_ensemble_atom_name_graph"
+    mol = Chem.MolFromMolFile(recovered["pb_sdf"])
+    assert mol.GetConformer().GetAtomPosition(2).x == 20

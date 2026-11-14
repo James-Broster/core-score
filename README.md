@@ -127,10 +127,13 @@ calculated, saying why.
 | `posebusters.json` | Every individual PoseBusters check for every prediction, so you can see why one failed. |
 | `reference_details.json` | OpenStructure's full output against the reference, when you gave one. |
 | `run.json` | The settings and package versions used. |
+| `ligand_preparation.json` | Verified ligand chemistry sources and coordinate serialization checks. |
 
 Two more appear only when needed: `sites.json`, saying how the copies of a ligand were
 matched to binding sites, and `failed_pairs.json`, with OpenStructure's error for any pair
 of predictions it could not compare.
+If an OpenStructure worker cannot be reused or an attempt times out, `ost_execution/`
+records the reason and any identical-command retries.
 
 ## Options
 
@@ -140,7 +143,7 @@ of predictions it could not compare.
 | `--plot` | Also plot the scores. Needs `pip install "core-score[plot]"`. |
 | `--skip-posebusters` | Do not run PoseBusters. |
 | `--rmsd-thresholds 1 2` | Calculate CORE at each threshold T in Å (default 2). |
-| `--timeout SECONDS` | Time limit for each OpenStructure call. |
+| `--timeout SECONDS` | Time limit per OpenStructure attempt (default 120); timeouts retry twice. |
 | `--no-radius-fallback` | Do not retry failed binding-site comparisons at 6 and 8 Å. |
 
 Predicted structures can also be given directly, as one ensemble.
@@ -148,6 +151,40 @@ Predicted structures can also be given directly, as one ensemble.
 ```bash
 core-score predictions/*.cif --ligand "CCO" --out results/
 ```
+
+## Changes in 0.6.0
+
+OpenStructure now receives the same verified, SMILES-matched ligand connectivity as
+PoseBusters, for predictions and experimental references. Atom order and coordinates
+are checked; SDF rounding is limited to 0.0000500001 Å per coordinate. Multiple ligand
+copies retain their own verified connectivity when split into sites. If chemistry cannot
+be verified, the comparison remains unresolved with a diagnostic rather than silently
+using a different inferred graph.
+
+The CORE formula is unchanged: each pose's three closest neighbours, capped at T=2 Å
+by default, with every pose included regardless of PoseBusters validity. **Scores may
+change from 0.5.1 where its coordinate-inferred bonds differed from the verified ligand
+graph.** No minimisation or coordinate repair is performed.
+
+Ligand comparisons reuse an OpenStructure interpreter per worker, avoiding repeated
+startup. Each comparison still loads its input structures and runs the installed OST
+command's scoring code; structures and scores are not cached. The package discovers
+OST through `PATH`, including when OST lives in a separate conda environment.
+PoseBusters energy calculations use one thread to avoid CPU oversubscription, with
+their thresholds and conformer seed unchanged. Unknown checks remain blank, carry a
+diagnostic note, and never count as valid.
+
+The default timeout is 120 seconds per attempt. A timeout kills the worker and its
+child processes before retrying the identical comparison, at most twice. Other scoring
+errors are not retried. Increase `--timeout` for larger structures; Python callers can
+pass `timeout=None` to disable the comparison deadline.
+
+Persistent workers are used automatically on supported POSIX OST installations. If
+startup is unsupported, the package records the reason and uses fresh CLI processes.
+For diagnostics, `CORE_SCORE_OST_MODE=subprocess` forces fresh processes, while
+`CORE_SCORE_OST_MODE=persistent` requires reuse and reports an error if unavailable.
+Worker startup has a separate limit of up to 30 seconds. Both modes use the same
+scoring arguments and chemical library.
 
 ## Citing
 

@@ -2,6 +2,7 @@
 choosing a top-ranked prediction. CORE uses every pose whatever its result. Unknown never
 counts as a pass."""
 
+from copy import deepcopy
 from core_score.outputs.files import clean, diagnostic, write_json
 
 
@@ -9,6 +10,10 @@ def run_posebusters(groups, output):
     from posebusters import PoseBusters
 
     buster = PoseBusters(config="dock", max_workers=0)
+    buster.config = deepcopy(buster.config)
+    for module in buster.config["modules"]:
+        if module.get("function") == "energy_ratio":
+            module.setdefault("parameters", {})["num_threads"] = 1
     checks = dock_checks(buster)
     records = [check_pose(buster, checks, pose) for group in groups for pose in group["poses"]]
     write_json(output / "posebusters.json", records)
@@ -48,7 +53,13 @@ def check_pose(buster, checks, pose):
     prepared = pose["prepared"]
     copies = [check_copy(buster, checks, copy, prepared["receptor"]) for copy in prepared["copy_records"]]
     combined = {name: aggregate(copy.get("checks", {}).get(name) for copy in copies) for name in checks}
-    return dict(record, pb_valid=aggregate(copy["pb_valid"] for copy in copies), checks=combined, copies=copies)
+    verdict = aggregate(copy["pb_valid"] for copy in copies)
+    result = dict(record, pb_valid=verdict, checks=combined, copies=copies)
+    if verdict is None:
+        missing = [name for name, value in combined.items() if value is None]
+        reasons = [copy["error"] for copy in copies if copy.get("error")]
+        result["error"] = "PoseBusters result unknown: " + "; ".join(reasons or missing or ["no checks returned"])
+    return result
 
 
 def check_copy(buster, checks, copy, receptor):

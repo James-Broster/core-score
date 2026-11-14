@@ -128,10 +128,40 @@ def test_command_line_run_with_reference_and_plots(tmp_path, monkeypatch):
         "core_score_distribution.png", "core_scores.csv", "core_scores.png", "details", "predictions.csv"]
     # The evidence is kept, the working copies of every structure are not.
     assert sorted(p.name for p in (results / "details").iterdir()) == [
-        "pairs.csv", "posebusters.json", "reference_details.json", "run.json"]
+        "ligand_preparation.json", "pairs.csv", "posebusters.json", "reference_details.json", "run.json"]
     with (results / "predictions.csv").open() as handle:
         rows = {row["prediction"]: row for row in csv.DictReader(handle)}
     # a and c are copies of the reference itself.
     for name in ("poses/a.cif", "poses/c.cif"):
         assert float(rows[name]["rmsd"]) == pytest.approx(0, abs=1e-3)
         assert float(rows[name]["lddt_pli"]) == pytest.approx(1)
+
+
+def test_persistent_cli_matches_fresh_cli_after_different_inputs_and_options(tmp_path, monkeypatch):
+    from core_score.analysis import ost, transport
+    from core_score.inputs.prepare import prepare_groups
+
+    options(monkeypatch)
+    [group] = prepare_groups(groups(tmp_path / "poses"), tmp_path / "prepared")
+    a, b = [pose["prepared"] for pose in group["poses"][:2]]
+    cases = [(a, b, 4.0, True), (b, a, 6.0, False), (a, a, 4.0, True), (a, b, 4.0, True)]
+    ordinary = []
+    monkeypatch.setenv("CORE_SCORE_OST_MODE", "subprocess")
+    for model, reference, radius, lddt in cases:
+        result = ost.compare_ligands(model, reference, 30, radius, lddt)
+        assert result["status"] == "SUCCESS"
+        result.pop("_execution")
+        result["arguments"].pop("output")  # Each call deliberately has a fresh output path.
+        ordinary.append(result)
+    monkeypatch.setenv("CORE_SCORE_OST_MODE", "persistent")
+    pids = []
+    with transport.session(tmp_path / "audit"):
+        for case, expected in zip(cases, ordinary):
+            model, reference, radius, lddt = case
+            result = ost.compare_ligands(model, reference, 30, radius, lddt)
+            execution = result.pop("_execution")
+            result["arguments"].pop("output")
+            assert execution["transport"] == "persistent_original_cli"
+            pids.append(execution["worker_pid"])
+            assert result == expected
+    assert len(set(pids)) == 1

@@ -69,7 +69,7 @@ class SummaryTests(unittest.TestCase):
         prepared = dict(path="model.cif", ligand_sdfs=[], copies=1)
         pose = lambda name: dict(pose_id=name, path=name, prepared=prepared)
         with patch(
-            "core_score.analysis.ost.subprocess.run",
+            "core_score.analysis.transport.run",
             side_effect=subprocess.TimeoutExpired("ost", 1),
         ):
             row, detail = pair_job((dict(ensemble="e", site="1"), pose("a"), pose("b")))
