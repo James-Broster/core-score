@@ -1,19 +1,9 @@
-"""Load prediction ensembles from a CSV file, or from structure files given directly.
-
-The CSV needs three columns. `ligand` is a SMILES or an SDF file, and `predictions` is one
-structure file or a wildcard matching many:
-
-    ensemble,ligand,predictions
-    7ly6,CC(=O)Nc1ccc(O)cc1,predictions/7ly6/*.cif
-
-Optional columns are confidence (one prediction per row), ligand_chain (space separated
-when the ligand has several copies) and reference (the ground-truth structure). Paths are
-relative to the CSV.
-"""
+"""Load ensembles from CSV or structure paths; resolve paths relative to the CSV."""
 
 import csv
 import glob
 import os
+import re
 from collections import defaultdict
 from pathlib import Path
 from core_score.analysis.core import NEIGHBOURS
@@ -27,12 +17,7 @@ LIGAND_FILES = (".sdf", ".mol")
 
 
 def load_inputs(inputs, *, ligand=None, ligand_chains=None, reference=None):
-    """Ensemble records from one CSV, or from structure files forming one ensemble.
-
-    Poses are sorted by path, never kept in listing order. That order fixes the
-    site-assignment anchor and which pose of each pair OST treats as the model, so
-    reordering the input never changes a score. Pose IDs are paths relative to the CSV.
-    """
+    """Load poses in numeric path order, fixing site anchors and OST pair direction."""
     inputs = [Path(path) for path in inputs]
     if len(inputs) == 1 and inputs[0].suffix.lower() == ".csv":
         base, rows = inputs[0].resolve().parent, read_csv(inputs[0])
@@ -85,11 +70,16 @@ def make_group(name, rows, base):
         raise ValueError(f"{name}: a structure is listed more than once")
     if len({"confidence" in pose for pose in poses}) != 1:
         raise ValueError(f"{name}: give a confidence for every prediction or for none")
-    group = dict(ensemble=name, poses=sorted(poses, key=lambda pose: pose["path"]))
+    group = dict(ensemble=name, poses=sorted(poses, key=lambda pose: natural_path_key(pose["path"])))
     if rows[0].get("reference"):
         path = resolve(base, rows[0]["reference"])
         group["reference"] = dict(ensemble=name, pose_id="reference", path=path, smiles=smiles)
     return group
+
+
+def natural_path_key(path):
+    """Numeric seed/sample order; break leading-zero ties by the original path."""
+    return tuple(int(part) if part.isdigit() else part for part in re.split(r"(\d+)", path)), path
 
 
 def ligand_smiles(ligand, base):

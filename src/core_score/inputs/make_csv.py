@@ -1,21 +1,4 @@
-"""core-score-csv: write the CSV that core-score reads, from a folder of predictions.
-
-    core-score-csv --predictions predictions/ --ligands ligands.csv --output core_score_input.csv
-
-`predictions` holds one folder per ensemble, named for it, with that ensemble's structure
-files anywhere inside it. `ligands.csv` has the columns ensemble,ligand, each ligand a
-SMILES or an SDF file relative to that CSV. With --references,
-a folder holding <ensemble>.cif or <ensemble>.pdb for each ensemble, the reference column
-is filled in too.
-
-A structure file found twice with the same coordinates, such as the copy of the top
-model AlphaFold3 writes beside its seed folders, is listed once.
-
-Confidence is read wherever a structure sits beside its confidence file, as AlphaFold3,
-Boltz, Chai-1, Protenix and OpenFold3 write them. It is the ligand's ipTM, as in Runs N'
-Poses, the mean chain-pair ipTM between the ligand chain and each receptor chain, also
-averaged over the ligand's copies when it has several.
-"""
+"""Build input CSVs from model outputs, deduplicating structures and reading ligand ipTM."""
 
 import argparse
 import csv

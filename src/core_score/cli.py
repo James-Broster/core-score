@@ -35,8 +35,8 @@ def parser():
                    help="Ligand chain for structure files; repeat for identical copies")
     p.add_argument("--workers", type=worker_count, default=1,
                    help="Simultaneous OST comparisons (default: 1)")
-    p.add_argument("--timeout", type=positive, default=120,
-                   help="Seconds per OST attempt; timeouts retry twice (default: 120)")
+    p.add_argument("--timeout", type=positive, default=None,
+                   help="Optional seconds per OST comparison; no automatic timeout retries (default: no timeout)")
     p.add_argument("--no-radius-fallback", action="store_true",
                    help="Disable eligible binding-site retries at 6 and 8 angstroms")
     p.add_argument("--skip-posebusters", action="store_true", help="Do not run PoseBusters checks")

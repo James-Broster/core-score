@@ -70,7 +70,7 @@ def test_matrix_missing_duplicate_and_failed_pairs():
 
 def test_cli_agreed_defaults():
     args = parser().parse_args(["one.cif", "two.cif", "--out", "results"])
-    assert args.workers == 1 and args.timeout == 120
+    assert args.workers == 1 and args.timeout is None
     assert not args.skip_posebusters and not hasattr(args, "filter_pb_invalid")
     assert not args.no_radius_fallback and not hasattr(args, "fallback_radii")
     assert args.rmsd_thresholds == [2]

@@ -38,7 +38,7 @@ def execute(
     output,
     *,
     workers=1,
-    timeout=120,
+    timeout=None,
     radius_fallback=True,
     skip_posebusters=False,
     thresholds=(2.0,),
@@ -63,7 +63,7 @@ def execute(
         radius_fallback=radius_fallback, workers=workers, skip_posebusters=skip_posebusters,
         thresholds=thresholds, evaluate_reference=evaluate_reference, plot=plot,
         ligand_connectivity="smiles_matched_explicit_connectivity_v1",
-        ost_mode=transport.mode(), ost_max_timeout_retries=transport.MAX_TIMEOUT_RETRIES,
+        ost_mode=transport.mode(), ost_max_timeout_retries=0,
         structures_cached=False, posebusters_energy_threads=1,
     ))
 

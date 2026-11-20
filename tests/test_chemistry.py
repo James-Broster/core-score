@@ -37,6 +37,31 @@ def test_connectivity_mismatch_is_not_repaired():
         matched_template(Chem.MolFromSmiles("C1CC1"), observed)
 
 
+def test_native_bonds_select_correct_isomer_without_dropping_unknown_graph(monkeypatch):
+    from core_score.inputs import structures as s
+    molecules = {"A": conformer("CCO"), "B": conformer("COC"), "C": conformer("CCO")}
+    residues = {(chain, "1", "", "LIG"): [dict(type_symbol=a.GetSymbol(), label_atom_id=str(i),
+                  chain=chain) for i, a in enumerate(mol.GetAtoms())]
+                for chain, mol in molecules.items()}
+    monkeypatch.setattr(s, "ligand_residues", lambda doc: residues)
+    monkeypatch.setattr(s, "native_graph", lambda doc, rows:
+                        (None, None) if rows[0]["chain"] == "C" else
+                        (molecules[rows[0]["chain"]], "native_cif_bonds"))
+    assert {k[0] for k in s.choose_ligands(None, dict(smiles="CCO"))} == {"A", "C"}
+    # An explicit chain request must not silently select another molecule.
+    assert {k[0] for k in s.choose_ligands(None, dict(smiles="CCO", ligand_chains=["B"]))} == {"B"}
+
+
+def test_native_mismatch_without_a_match_remains_a_preparation_error(monkeypatch):
+    from core_score.inputs import structures as s
+    mol = conformer("COC")
+    residues = {(chain, "1", "", "LIG"): [dict(type_symbol=a.GetSymbol(), label_atom_id=str(i))
+                for i, a in enumerate(mol.GetAtoms())] for chain in ("A", "B")}
+    monkeypatch.setattr(s, "ligand_residues", lambda doc: residues)
+    monkeypatch.setattr(s, "native_graph", lambda doc, rows: (mol, "native_cif_bonds"))
+    assert len(s.choose_ligands(None, dict(smiles="CCO"))) == 2
+
+
 def test_failed_chemistry_validation_cannot_return_pb_input(monkeypatch):
     import gemmi
     from core_score.inputs import structures as sdf
@@ -188,6 +213,52 @@ _chem_comp.id
 _chem_comp.pdbx_smiles
 LIG CCO
 """
+TWO_IDENTITIES = ETHANOL + """HETATM 4 C C1 ETHER C 1 4.000 0.000 0.000
+HETATM 5 O O1 ETHER C 1 5.400 0.000 0.000
+HETATM 6 C C2 ETHER C 1 6.000 1.200 0.000
+loop_
+_chem_comp.id
+_chem_comp.pdbx_smiles
+LIG CCO
+ETHER COC
+"""
+
+
+def test_automatic_selection_distinguishes_native_same_composition_ligands():
+    from core_score.inputs.structures import choose_ligands, atom_rows
+
+    doc = gemmi.cif.read_string(TWO_IDENTITIES)
+    before = atom_rows(doc)
+    assert [key[0] for key in choose_ligands(doc, dict(smiles="CCO"))] == ["B"]
+    assert [key[0] for key in choose_ligands(doc, dict(smiles="COC"))] == ["C"]
+    assert atom_rows(doc) == before
+
+
+def test_explicit_wrong_chain_still_fails_identity_verification():
+    from core_score.inputs.structures import choose_ligands, make_ligand
+
+    doc = gemmi.cif.read_string(TWO_IDENTITIES)
+    [rows] = choose_ligands(doc, dict(smiles="CCO", ligand_chains=["C"])).values()
+    with pytest.raises(ValueError, match="identity mismatch"):
+        make_ligand(doc, rows, "CCO")
+
+
+def test_auto_selection_retains_candidates_without_verified_native_identity():
+    from core_score.inputs.structures import choose_ligands
+
+    # Do not drop a distorted same-composition ligand or infer identity from
+    # coordinate connectivity: both copies must reach chemistry verification.
+    doc = gemmi.cif.read_string(TWO_IDENTITIES.replace("ETHER COC", "ETHER ?"))
+    assert len(choose_ligands(doc, dict(smiles="CCO"))) == 2
+
+
+def test_auto_selection_keeps_all_identical_native_copies():
+    from core_score.inputs.structures import choose_ligands
+
+    doc = gemmi.cif.read_string(TWO_IDENTITIES.replace("ETHER COC", "ETHER CCO"))
+    assert len(choose_ligands(doc, dict(smiles="CCO"))) == 2
+
+
 BOND_TABLE = """loop_
 _chem_comp_bond.comp_id
 _chem_comp_bond.atom_id_1

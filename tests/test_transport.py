@@ -24,6 +24,8 @@ from multiprocessing.connection import Connection
 def score(args):
     if '--sleep' in args:
         time.sleep(10)
+    if '--brief-sleep' in args:
+        time.sleep(0.3)
     if '--crash' in args:
         os._exit(3)
     out = Path(args[args.index('-o') + 1])
@@ -66,14 +68,14 @@ def test_reuses_interpreter_but_reads_changed_structure_each_time(fake_ost):
         os.kill(pid, 0)
 
 
-def test_timeout_replaces_worker_and_keeps_retry_evidence(fake_ost, tmp_path):
+def test_timeout_replaces_worker_and_records_failure(fake_ost, tmp_path):
     _, first = ost.execute(fake_ost, 5)
     with transport.session(tmp_path):
         with pytest.raises(ost.OSTError, match="TimeoutExpired") as failure:
             ost.execute([*fake_ost, "--sleep"], 0.2)
-        assert len(failure.value.evidence["timeout_retries"]) == 3
+        assert len(failure.value.evidence["timeout_retries"]) == 1
         records = [json.loads(p.read_text()) for p in (tmp_path / "ost_execution").glob("*.json")]
-        assert [r["retry"] for r in sorted(records, key=lambda r: r["attempt"])] == [True, True, False]
+        assert [r["retry"] for r in sorted(records, key=lambda r: r["attempt"])] == [False]
         _, fresh = ost.execute(fake_ost, 5)
         assert fresh["worker_pid"] != first["worker_pid"]
     assert not transport._CLIENTS
@@ -100,7 +102,7 @@ def test_auto_fallback_is_explicit_and_strict_mode_does_not_fallback(fake_ost, t
             ost.execute(fake_ost, 5)
 
 
-def test_success_after_timeout_uses_identical_arguments_and_new_output(tmp_path):
+def test_explicit_timeout_does_not_retry_or_use_partial_output(tmp_path):
     calls = []
 
     def run(arguments, output, timeout):
@@ -112,11 +114,22 @@ def test_success_after_timeout_uses_identical_arguments_and_new_output(tmp_path)
         return dict(returncode=0, stdout="", stderr="")
 
     with patch.object(transport, "run", run):
-        result, evidence = ost.execute(["compare-ligand-structures", "-m", "pose.cif"], 2)
+        with pytest.raises(ost.OSTError, match="TimeoutExpired"):
+            ost.execute(["compare-ligand-structures", "-m", "pose.cif"], 2)
+        assert len(calls) == 1
+        result, evidence = ost.execute(["compare-ligand-structures", "-m", "pose.cif"], None)
     assert result == {"status": "SUCCESS"}
     assert calls[0][0] == calls[1][0]
     assert calls[0][1] != calls[1][1]
-    assert len(evidence["timeout_retries"]) == 1
+    assert evidence["timeout_retries"] == []
+
+
+@pytest.mark.parametrize("mode", ["persistent", "subprocess"])
+def test_default_no_deadline_allows_comparison_to_complete(fake_ost, monkeypatch, mode):
+    monkeypatch.setenv("CORE_SCORE_OST_MODE", mode)
+    result, evidence = ost.execute([*fake_ost, "--brief-sleep"])
+    assert result["value"] == "first coordinates"
+    assert evidence["timeout_retries"] == []
 
 
 def test_session_cleanup_on_exception(fake_ost, tmp_path):

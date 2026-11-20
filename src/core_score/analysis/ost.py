@@ -11,6 +11,7 @@ from core_score.analysis import transport
 
 
 INSTALL = "conda install -c conda-forge -c bioconda openstructure"
+SYMMETRY_RETRY_LIMITS = (100_000, 1_000_000)
 
 
 def require_ost():
@@ -27,31 +28,24 @@ class OSTError(RuntimeError):
 
 def execute(arguments, timeout=None):
     """Run `ost <arguments> -o <file>` and return its JSON output with the execution record."""
-    retries = []
-    for attempt in range(transport.MAX_TIMEOUT_RETRIES + 1):
-        # Fresh output path on every attempt: never read partial/stale results after timeout.
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "ost.json"
-            try:
-                execution = transport.run(arguments, output, timeout)
-            except subprocess.TimeoutExpired as exc:
-                event = dict(event="timeout", arguments=list(map(str, arguments)), timeout=timeout,
-                             attempt=attempt + 1, retry=attempt < transport.MAX_TIMEOUT_RETRIES,
-                             error=str(exc))
-                retries.append(event)
-                transport.audit(event)
-                if attempt == transport.MAX_TIMEOUT_RETRIES:
-                    raise OSTError(f"TimeoutExpired: {exc}", dict(timeout_retries=retries)) from exc
-                continue
-            execution["timeout_retries"] = retries
-            if not output.exists():
-                raise OSTError(execution["stderr"].strip() or
-                               f"OST exited with code {execution['returncode']}", execution)
-            try:
-                result = json.loads(output.read_text())
-            except (ValueError, OSError) as exc:
-                raise OSTError(f"Invalid OST output: {exc}", execution) from exc
-            return result, execution
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "ost.json"
+        try:
+            execution = transport.run(arguments, output, timeout)
+        except subprocess.TimeoutExpired as exc:
+            event = dict(event="timeout", arguments=list(map(str, arguments)), timeout=timeout,
+                         attempt=1, retry=False, error=str(exc))
+            transport.audit(event)
+            raise OSTError(f"TimeoutExpired: {exc}", dict(timeout_retries=[event])) from exc
+        execution["timeout_retries"] = []
+        if not output.exists():
+            raise OSTError(execution["stderr"].strip() or
+                           f"OST exited with code {execution['returncode']}", execution)
+        try:
+            result = json.loads(output.read_text())
+        except (ValueError, OSError) as exc:
+            raise OSTError(f"Invalid OST output: {exc}", execution) from exc
+        return result, execution
 
 
 def compare_ligands(model, reference, timeout=None, radius=4.0, lddt_pli=False):
@@ -68,31 +62,40 @@ def compare_ligands(model, reference, timeout=None, radius=4.0, lddt_pli=False):
         arguments += ["--lddt-pli", "--lddt-pli-add-mdl-contacts"]
     if radius != 4.0:
         arguments += ["--radius", radius]
-    result, execution = execute(arguments, timeout)
-    if execution["returncode"] or result.get("status") != "SUCCESS":
-        result["status"] = "FAILURE"
-        result.setdefault("exception", execution["stderr"][-2000:] or "OST did not report success")
+    symmetry_attempts = []
+    for limit in (None, *SYMMETRY_RETRY_LIMITS):
+        command = arguments if limit is None else [*arguments, "--max-symmetries", str(limit)]
+        result, execution = execute(command, timeout)
+        if execution["returncode"] or result.get("status") != "SUCCESS":
+            result["status"] = "FAILURE"
+            result.setdefault("exception", execution["stderr"][-2000:] or "OST did not report success")
+        limited = result.get("status") == "SUCCESS" and symmetry_limit_reached(result)
+        symmetry_attempts.append(dict(max_symmetries=limit, limit_reached=limited, execution=dict(execution)))
+        if not limited:
+            break
+    if len(symmetry_attempts) > 1:
+        execution["symmetry_attempts"] = symmetry_attempts
+        transport.audit(dict(event="symmetry_limit_retry", attempts=symmetry_attempts))
     result["_execution"] = execution
     return result
 
 
-def reads_ligand(prepared, timeout=None):
-    """Whether OST reads each ligand copy from the structure itself, connected the same way
-    as in the package's own SDFs (bonds from the coordinates). A ligand OST cannot find,
-    cannot read, or connects differently returns False."""
-    sdfs = [copy["ost_sdf"] for copy in prepared["copy_records"]]
-    try:
-        result = compare_ligands(prepared, dict(prepared, ligand_sdfs=sdfs), timeout)
-    except OSTError:
-        return False
-    assigned = [] if result["status"] == "FAILURE" else result.get("rmsd", {}).get("assigned_scores", [])
-    return len(assigned) == len(sdfs)
+def symmetry_limit_reached(result):
+    """Retry only OST's explicit symmetry-limit reason, never a graph/pocket error."""
+    for metric in ("rmsd", "lddt_pli"):
+        scores = result.get(metric, {})
+        for field in ("model_ligand_unassigned_reason", "reference_ligand_unassigned_reason"):
+            if any(isinstance(reason, (list, tuple)) and reason and reason[0] == "symmetries"
+                   for reason in scores.get(field, {}).values()):
+                return True
+    return False
 
 
 def superpose(model_path, reference_path, timeout=None):
     """OST rigid superposition of matched protein C-alpha atoms, model onto reference."""
     result, execution = execute(
-        ["compare-structures", "-m", model_path, "-r", reference_path, "--rigid-scores"], timeout
+        ["compare-structures", "-m", model_path, "-r", reference_path,
+         "--rigid-scores", "--fault-tolerant"], timeout
     )
     if execution["returncode"] or result.get("status") != "SUCCESS" or result.get("transform") is None:
         raise OSTError(

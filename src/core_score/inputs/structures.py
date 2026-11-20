@@ -157,8 +157,27 @@ def choose_ligands(doc, pose):
         if missing:
             raise ValueError(f"Ligand chains absent: {sorted(missing)}; candidates: {list(candidates)}")
         selected = {k: v for k, v in selected.items() if k[0] in pose["ligand_chains"]}
-    expected = Counter(a.GetSymbol() for a in template_mol(pose["smiles"]).GetAtoms())
+    template = template_mol(pose["smiles"])
+    expected = Counter(a.GetSymbol() for a in template.GetAtoms())
     selected = {k: v for k, v in selected.items() if composition(v) == expected}
+    if not pose.get("ligand_chains") and len(selected) > 1:
+        # Reject isomers only from native chemistry, never from distorted geometry.
+        identity = canonical_smiles(template)
+        native_matches, native_mismatches = set(), set()
+        for key, rows in list(selected.items()):
+            graph, route = native_graph(doc, rows)
+            if route == "native_smiles_atom_names" and canonical_smiles(graph) != identity:
+                del selected[key]
+            elif route == "native_cif_bonds":
+                try:
+                    matched_template(template, graph)
+                except ValueError:
+                    native_mismatches.add(key)
+                else:
+                    native_matches.add(key)
+        # Bond-table exclusions require at least one verified matching residue.
+        if native_matches:
+            selected = {k: v for k, v in selected.items() if k not in native_mismatches}
     if not selected:
         raise ValueError(f"Selected ligand absent; candidates: {list(candidates)}")
     if len({tuple(sorted(composition(rows).items())) for rows in selected.values()}) > 1:

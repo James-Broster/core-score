@@ -47,6 +47,30 @@ def test_pose_order_ignores_listing_order(tmp_path):
     assert orders[0] == orders[1] == [f"{n}.cif" for n in "abcd"]
 
 
+def test_numeric_seed_and_sample_order_fixes_ost_pair_direction(tmp_path):
+    from pathlib import Path
+    from core_score.analysis.pairs import pair_tasks
+
+    names = ["seed-950000000_sample-2.cif", "seed-950000000_sample-10.cif",
+             "seed-2500000000_sample-0.cif", "seed-2500000000_sample-1.cif"]
+    structures(tmp_path, names)
+    expected = [(names[i], names[j]) for i in range(4) for j in range(i + 1, 4)]
+    for listing in (names, list(reversed(names))):
+        [group] = load([str(tmp_path / n) for n in listing] + ["--ligand", "CCO", "--out", "out"])
+        actual = [(Path(a["path"]).name, Path(b["path"]).name) for _, a, b in pair_tasks([group])]
+        assert actual == expected
+
+
+def test_numeric_path_ties_remain_independent_of_csv_row_order(tmp_path):
+    names = ["pose_01.cif", "pose_1.cif", "pose_02.cif", "pose_2.cif"]
+    structures(tmp_path, names)
+    for listing in (names, list(reversed(names))):
+        table = write_csv(tmp_path / "input.csv", "ensemble,ligand,predictions\n" +
+                          "\n".join(f"g,CCO,{name}" for name in listing))
+        [group] = load([str(table), "--out", "out"])
+        assert [p["pose_id"] for p in group["poses"]] == names
+
+
 def test_reference_column_is_loaded_with_the_ensemble_smiles(tmp_path):
     structures(tmp_path, ["a.cif", "b.cif", "c.cif", "d.cif", "ref.cif"])
     table = write_csv(tmp_path / "inputs.csv", "ensemble,ligand,predictions,reference\ng,CCO,[abcd].cif,ref.cif")

@@ -3,6 +3,7 @@ choosing a top-ranked prediction. CORE uses every pose whatever its result. Unkn
 counts as a pass."""
 
 from copy import deepcopy
+import logging
 from core_score.outputs.files import clean, diagnostic, write_json
 
 
@@ -66,11 +67,23 @@ def check_copy(buster, checks, copy, receptor):
     record = dict(copy_id=copy["copy_id"], preparation=copy["provenance"], pb_valid=None)
     if copy["pb_error"]:
         return dict(record, error=copy["pb_error"])
+    messages = []
+    handler = logging.Handler(level=logging.WARNING)
+    handler.emit = lambda item: messages.append(item.getMessage())
+    logger = logging.getLogger("posebusters")
+    logger.addHandler(handler)
     try:
         report = buster.bust(copy["pb_sdf"], mol_cond=receptor, full_report=True)
     except Exception as exc:
         return dict(record, **diagnostic("posebusters", exc))
+    finally:
+        logger.removeHandler(handler)
     tests = {normalized(k): clean(v) for k, v in report.iloc[0].items()}
     results = {name: tests.get(name) if isinstance(tests.get(name), bool) else None for name in checks}
-    return dict(record, pb_valid=aggregate(results.values()), checks=results, tests=tests)
+    result = dict(record, pb_valid=aggregate(results.values()), checks=results, tests=tests)
+    if messages:
+        result["warnings"] = list(dict.fromkeys(messages))
+        if result["pb_valid"] is None:
+            result["error"] = "; ".join(result["warnings"])
+    return result
 
